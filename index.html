@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>畑管理PWA 試作1号（勤怠＋作業＋同期）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 16px;
+      line-height: 1.6;
+      background: #f5f5f5;
+    }
+    h1 {
+      font-size: 20px;
+      margin-bottom: 12px;
+    }
+    section {
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    label {
+      display: block;
+      margin-top: 4px;
+      font-size: 14px;
+    }
+    select, input, textarea {
+      width: 100%;
+      max-width: 360px;
+      padding: 6px 8px;
+      margin-top: 2px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    button {
+      display: inline-block;
+      margin: 4px 4px 0 0;
+      padding: 8px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    button.primary {
+      background: #00796b;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+    }
+    button.secondary {
+      background: #eeeeee;
+      border: 1px solid #cccccc;
+      border-radius: 4px;
+    }
+    #log {
+      margin-top: 8px;
+      padding: 8px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background: #fafafa;
+      white-space: pre-wrap;
+      font-size: 12px;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+    .status {
+      font-size: 13px;
+      color: #555;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>畑管理PWA 試作1号（勤怠＋作業＋同期）</h1>
+
+  <section>
+    <h2>1. 作業者と基本情報</h2>
+    <label>
+      作業者：
+      <select id="workerSelect">
+        <option value="">選択してください</option>
+        <option value="W001">W001 山田太郎</option>
+        <option value="W002">W002 佐藤花子</option>
+      </select>
+    </label>
+
+    <p class="status">
+      現在の勤怠状態：<span id="shiftStatus">未出勤</span><br>
+      現在の作業状態：<span id="taskStatus">作業なし</span>
+    </p>
+  </section>
+
+  <section>
+    <h2>2. 勤怠操作</h2>
+    <button id="btnClockIn"  class="primary">出勤</button>
+    <button id="btnBreakStart" class="secondary">休憩開始</button>
+    <button id="btnBreakEnd"   class="secondary">休憩終了</button>
+    <button id="btnClockOut" class="secondary">退勤</button>
+  </section>
+
+  <section>
+    <h2>3. 作業操作</h2>
+
+    <label>
+      畝ID（本番ではQR読取想定）：
+      <input id="bedIdInput" type="text" placeholder="例：F3-01">
+    </label>
+
+    <label>
+      作業種別：
+      <select id="taskTypeSelect">
+        <option value="">選択してください</option>
+        <option value="SOW">播種</option>
+        <option value="TRANS">定植</option>
+        <option value="WEED">除草</option>
+        <option value="WATER">潅水</option>
+        <option value="HARVEST">収穫</option>
+      </select>
+    </label>
+
+    <label>
+      メモ：
+      <textarea id="taskMemo" rows="3" placeholder="任意メモ"></textarea>
+    </label>
+
+    <button id="btnTaskStart" class="primary">作業開始</button>
+    <button id="btnTaskEnd"   class="secondary">作業終了</button>
+  </section>
+
+  <section>
+    <h2>4. 同期</h2>
+    <button id="btnSync" class="primary">未同期データをサーバへ送信</button>
+    <p class="status">
+      オンライン状態：<span id="onlineStatus"></span>
+    </p>
+  </section>
+
+  <section>
+    <h2>5. 日別気温・地温入力</h2>
+
+    <label>
+      日付：
+      <input id="dailyDateInput" type="date">
+    </label>
+
+    <label>
+      圃場ID：
+      <input id="dailyFieldIdInput" type="text" placeholder="例：F3">
+    </label>
+
+    <label>
+      ハウスID：
+      <input id="dailyHouseIdInput" type="text" placeholder="例：H01">
+    </label>
+
+    <label>
+      気温最高（℃）：
+      <input id="dailyMaxTempInput" type="number" step="0.1">
+    </label>
+
+    <label>
+      気温最低（℃）：
+      <input id="dailyMinTempInput" type="number" step="0.1">
+    </label>
+
+    <label>
+      地温最高（℃）：
+      <input id="dailyMaxSoilInput" type="number" step="0.1">
+    </label>
+
+    <label>
+      地温最低（℃）：
+      <input id="dailyMinSoilInput" type="number" step="0.1">
+    </label>
+
+    <!-- ここから新規４項目 -->
+    <label>
+      照度（lx）：
+      <input id="dailyIlluminationInput" type="number" step="1">
+    </label>
+
+    <label>
+      二酸化炭素濃度（ppm）：
+      <input id="dailyCo2Input" type="number" step="1">
+    </label>
+
+    <label>
+      土壌水分（％）：
+      <input id="dailySoilMoistureInput" type="number" step="1">
+    </label>
+
+    <label>
+      EC値（mS/cm）：
+      <input id="dailyEcInput" type="number" step="0.01">
+    </label>
+    <!-- 新規４項目ここまで -->
+
+    <label>
+      取得方法：
+      <input id="dailyMethodInput" type="text" placeholder="手動観測／ロガー／APIなど">
+    </label>
+
+    <label>
+      メモ：
+      <textarea id="dailyMemoInput" rows="2" placeholder="任意のメモ"></textarea>
+    </label>
+
+    <button id="btnSaveDailyWeather" class="primary">気温・地温を端末に保存</button>
+
+    <p class="status">
+      日別気温・地温も、上の「未同期データをサーバへ送信」ボタンで他のデータと一緒にサーバへ送信されます。
+    </p>
+  </section>
+
+  <section>
+    <h2>ログ（開発者向け表示）</h2>
+    <div id="log"></div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
