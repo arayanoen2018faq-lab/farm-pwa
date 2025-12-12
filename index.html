@@ -78,13 +78,13 @@
   <section>
     <h2>1. 作業者と基本情報</h2>
     <label>
-      作業者：
-      <select id="workerSelect">
-        <option value="">選択してください</option>
-        <option value="W001">W001 山田太郎</option>
-        <option value="W002">W002 佐藤花子</option>
-      </select>
-    </label>
+  	作業者：
+  	<select id="workerSelect">
+    		<option value="">選択してください</option>
+    		<!-- ここにスクリプトから自動で option が追加されます -->
+  	</select>
+     </label>
+
 
     <p class="status">
       現在の勤怠状態：<span id="shiftStatus">未出勤</span><br>
@@ -109,15 +109,11 @@
     </label>
 
     <label>
-      作業種別：
-      <select id="taskTypeSelect">
-        <option value="">選択してください</option>
-        <option value="SOW">播種</option>
-        <option value="TRANS">定植</option>
-        <option value="WEED">除草</option>
-        <option value="WATER">潅水</option>
-        <option value="HARVEST">収穫</option>
-      </select>
+  	作業種別：
+  	<select id="taskTypeSelect">
+    		<option value="">選択してください</option>
+    		<!-- ここにスクリプトから自動で option が追加されます -->
+  	</select>
     </label>
 
     <label>
@@ -218,7 +214,8 @@
     <h2>ログ（開発者向け表示）</h2>
     <div id="log"></div>
   </section>
-
   <script src="app.js"></script>
+
+
 </body>
 </html>
