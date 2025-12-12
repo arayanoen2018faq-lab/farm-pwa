@@ -7,7 +7,7 @@
 
 // ★必ず自分の WebアプリURL に書き換えてください
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwUG5v7e7YuUMJ0A8YDtkmOcHbMYKPgoDWYN6tbfjaBVoxGXMx_v6xj9LNuwfi-CoD9/exec';
-
+const API_TOKEN = '6F1c9a7b3d2E4f05a1b9c8d2e7f5A4b3';
 const DB_NAME = 'farmCoreDB';
 const DB_VERSION = 2;
 const STORE_SHIFTS = 'shifts';
@@ -15,6 +15,8 @@ const STORE_TASKS = 'tasks';
 const STORE_DAILY_WEATHER = 'dailyWeather';
 
 const TZ_OFFSET_MINUTES = 0; // ここではブラウザのローカル時刻をそのまま使う
+
+
 
 // 画面上の状態保持
 let currentShiftLocalId = null;
@@ -67,6 +69,134 @@ function log(message) {
   area.textContent += `[${time}] ${message}\n`;
   area.scrollTop = area.scrollHeight;
 }
+// ============================
+// マスタ読込（JSONP）
+// ============================
+
+function clearSelectKeepFirst(selectEl) {
+  if (!selectEl) return;
+  while (selectEl.options.length > 1) {
+    selectEl.remove(1);
+  }
+}
+
+function workerIdOf(w) {
+  if (!w) return '';
+  const v = (w.id ?? w.workerId ?? w.worker_id ?? w.code ?? w.value ?? '');
+  return v === null || v === undefined ? '' : String(v);
+}
+
+function workerLabelOf(w) {
+  if (!w) return '';
+  return String(w.label ?? w.displayName ?? w.workerName ?? w.name ?? workerIdOf(w) ?? '');
+}
+
+function taskIdOf(t) {
+  if (!t) return '';
+  const v = (t.id ?? t.taskId ?? t.task_id ?? t.code ?? t.value ?? '');
+  return v === null || v === undefined ? '' : String(v);
+}
+
+function taskLabelOf(t) {
+  if (!t) return '';
+  return String(t.name ?? t.label ?? t.taskName ?? t.title ?? taskIdOf(t) ?? '');
+}
+
+function loadMastersViaJsonp() {
+  return new Promise((resolve, reject) => {
+    const callbackName = '__cbMasters_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+    const timeoutMs = 15000;
+    let done = false;
+
+    const cleanup = () => {
+      try { delete window[callbackName]; } catch (e) { window[callbackName] = undefined; }
+      if (script && script.parentNode) script.parentNode.removeChild(script);
+      if (timer) clearTimeout(timer);
+    };
+
+    window[callbackName] = (data) => {
+      done = true;
+      try {
+        resolve(data);
+      } finally {
+        cleanup();
+      }
+    };
+
+    const src =
+      WEB_APP_URL +
+      '?type=masters' +
+      '&token=' + encodeURIComponent(API_TOKEN) +
+      '&callback=' + encodeURIComponent(callbackName) +
+      '&_=' + Date.now();
+
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+
+    script.onerror = () => {
+      if (done) return;
+      cleanup();
+      reject(new Error('masters script load failed: ' + src));
+    };
+
+    const timer = setTimeout(() => {
+      if (done) return;
+      cleanup();
+      reject(new Error('masters timeout: ' + src));
+    }, timeoutMs);
+
+    document.head.appendChild(script);
+  });
+}
+
+function applyMastersToPullDown(data) {
+  if (!data) throw new Error('masters empty');
+  if (data.error) throw new Error('masters error: ' + data.error);
+
+  const workers = Array.isArray(data.workers) ? data.workers : [];
+  const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+
+  const workerSelect = document.getElementById('workerSelect');
+  const taskSelect = document.getElementById('taskTypeSelect');
+
+  clearSelectKeepFirst(workerSelect);
+  clearSelectKeepFirst(taskSelect);
+
+  workers.forEach((w) => {
+    const id = workerIdOf(w);
+    const label = workerLabelOf(w);
+    if (!id) return;
+
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label || id;
+    workerSelect.appendChild(opt);
+  });
+
+  tasks.forEach((t) => {
+    const id = taskIdOf(t);
+    const label = taskLabelOf(t);
+    if (!id) return;
+
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label || id;
+    taskSelect.appendChild(opt);
+  });
+
+  log(`マスタ反映完了 workers=${workers.length} tasks=${tasks.length}`);
+}
+
+async function initMasters() {
+  log('masters 読込開始…');
+  const data = await loadMastersViaJsonp();
+  console.log('[masters] raw:', data); // これが出れば「取得できている」確定です
+  applyMastersToPullDown(data);
+}
+
+
+
 
 function formatDateForSheet(date) {
   const y = date.getFullYear();
@@ -328,6 +458,7 @@ async function syncAll() {
     log(`未同期の勤怠: ${unsyncedShifts.length}件`);
 
     const payload = {
+      token: API_TOKEN,
       type: 'kintai',
       records: unsyncedShifts.map(r => {
         const data = Object.assign({}, r.data);
@@ -348,7 +479,6 @@ async function syncAll() {
 
       log('勤怠データをWebアプリへ送信しました（no-cors）');
 
-      // サーバIDは使っていないので null を入れて同期済みにする
       const serverIds = localIds.map(() => null);
       await markSynced(STORE_SHIFTS, localIds, serverIds);
     } catch (err) {
@@ -364,6 +494,7 @@ async function syncAll() {
     log(`未同期の作業: ${unsyncedTasks.length}件`);
 
     const payload = {
+      token: API_TOKEN,
       type: 'sagyo',
       records: unsyncedTasks.map(r => {
         const data = Object.assign({}, r.data);
@@ -399,6 +530,7 @@ async function syncAll() {
     log(`未同期の日別気温・地温: ${unsyncedDailyWeather.length}件`);
 
     const payload = {
+      token: API_TOKEN,
       type: 'dailyWeather',
       records: unsyncedDailyWeather.map(r => {
         const data = Object.assign({}, r.data);
@@ -430,6 +562,7 @@ async function syncAll() {
 
   log('同期完了');
 }
+
 
 
 // ============================
@@ -879,5 +1012,7 @@ window.addEventListener('load', () => {
   applyLocationFromUrl();
 
   updateStatuses();
+initMasters().catch(err => { log('masters 読込失敗: ' + err); alert('masters の読み込みに失敗しました。F12 Console を確認してください。'); });
+
   log('アプリ初期化完了');
 });
