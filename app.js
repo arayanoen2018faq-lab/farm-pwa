@@ -581,12 +581,73 @@ async function syncAll() {
     log('未同期の日別気温・地温はありません');
   }
 
+    // 4) 写真の同期
+  const unsyncedPhotos = await getUnsynced(STORE_PHOTOS);
+  if (unsyncedPhotos.length > 0) {
+    log(`未同期の写真: ${unsyncedPhotos.length}件`);
+
+    const records = [];
+    for (const r of unsyncedPhotos) {
+      const meta = (r.data && r.data.meta) ? r.data.meta : {};
+      const blob = r.blob;
+
+      if (!blob) continue;
+
+      const base64 = await blobToBase64(blob);
+
+      records.push({
+        localId: r.localId,
+        ...meta,
+        mimeType: r.mimeType || meta.mimeType || 'image/jpeg',
+        base64: base64
+      });
+    }
+
+    const payload = {
+      token: API_TOKEN,
+      type: 'photos',
+      records
+    };
+
+    const localIds = unsyncedPhotos.map(r => r.localId);
+
+    try {
+      await fetch(WEB_APP_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(payload)
+      });
+
+      log('写真データをWebアプリへ送信しました（no-cors）');
+
+      const serverIds = localIds.map(() => null);
+      await markSynced(STORE_PHOTOS, localIds, serverIds);
+    } catch (err) {
+      log('写真同期エラー: ' + err);
+    }
+  } else {
+    log('未同期の写真はありません');
+  }
   log('同期完了');
 }
 
 // ============================
 // 4.5 作業写真（開始/終了）：撮影・スタンプ・IndexedDB保存
 // ============================
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = String(r.result || '');
+      const i = s.indexOf(',');
+      resolve(i >= 0 ? s.slice(i + 1) : s);
+    };
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
 
 function setImgPreview(imgEl, blob) {
   if (!imgEl) return;
@@ -1473,5 +1534,6 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
