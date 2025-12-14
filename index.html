@@ -101,29 +101,45 @@
   </section>
 
   <section>
-    <h2>3. 作業操作</h2>
+  <h2>3. 作業操作</h2>
 
-    <label>
-      畝ID（本番ではQR読取想定）：
-      <input id="bedIdInput" type="text" placeholder="例：F3-01">
-    </label>
+  <label>
+    畝ID（本番ではQR読取想定）：
+    <input id="bedIdInput" type="text" placeholder="例：F3-01">
+  </label>
 
-    <label>
-  	作業種別：
-  	<select id="taskTypeSelect">
-    		<option value="">選択してください</option>
-    		<!-- ここにスクリプトから自動で option が追加されます -->
-  	</select>
-    </label>
+  <label>
+    作業種別：
+    <select id="taskTypeSelect">
+      <option value="">選択してください</option>
+      <!-- ここにスクリプトから自動で option が追加されます -->
+    </select>
+  </label>
 
-    <label>
-      メモ：
-      <textarea id="taskMemo" rows="3" placeholder="任意メモ"></textarea>
-    </label>
+  <label>
+    メモ：
+    <textarea id="taskMemo" rows="3" placeholder="任意メモ"></textarea>
+  </label>
 
-    <button id="btnTaskStart" class="primary">作業開始</button>
-    <button id="btnTaskEnd"   class="secondary">作業終了</button>
-  </section>
+  <button id="btnTaskStart" class="primary">作業開始</button>
+  <button id="btnTaskEnd"   class="secondary">作業終了</button>
+
+  <hr style="margin:10px 0; border:none; border-top:1px solid #ddd;">
+
+  <h3 style="margin:6px 0; font-size:16px;">作業写真（開始／終了）</h3>
+
+  <button id="btnPhotoStart" class="secondary">開始写真撮影</button>
+  <button id="btnPhotoEnd"   class="secondary">終了写真撮影</button>
+
+  <p class="status">
+    写真状態：<span id="photoStatus">作業なし</span>
+  </p>
+
+  <img id="photoStartPreview" alt="開始写真プレビュー"
+       style="display:none; width:100%; max-width:360px; margin-top:6px; border:1px solid #ccc; border-radius:6px;">
+  <img id="photoEndPreview" alt="終了写真プレビュー"
+       style="display:none; width:100%; max-width:360px; margin-top:6px; border:1px solid #ccc; border-radius:6px;">
+</section>
 
   <section>
     <h2>4. 同期</h2>
@@ -219,3 +235,4 @@
 
 </body>
 </html>
+
