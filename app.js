@@ -929,6 +929,8 @@ async function refreshPhotoUi() {
 
 async function takeTaskPhoto(kind) {
   // kind: 'start' / 'end'
+
+  // ここは同期的に判定して、すぐ input.click() まで到達させます
   if (!currentShiftLocalId || !currentWorkerId) {
     alert('出勤していません（写真撮影は出勤後に行ってください）');
     return;
@@ -938,69 +940,88 @@ async function takeTaskPhoto(kind) {
     return;
   }
 
-  const taskRec = await getTaskLocal(currentTaskLocalId);
-  if (!taskRec || !taskRec.data) {
-    alert('作業情報が取得できませんでした');
-    return;
-  }
+  // ここから下は「クリック直後にカメラを開く」ための入力を作って即クリックします
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.capture = 'environment';
 
-  const now = new Date();
-  const taskData = taskRec.data;
+  input.onchange = async () => {
+    try {
+      const file = input.files && input.files[0];
+      if (!file) return;
 
-  const loc = readCurrentLocationInputs();
+      // 以降は非同期でも問題ありません（change ハンドラ内）
+      const taskRec = await getTaskLocal(currentTaskLocalId);
+      if (!taskRec || !taskRec.data) {
+        alert('作業情報が取得できませんでした');
+        return;
+      }
 
-  const stampLines = [
-    `日時: ${formatDateForSheet(now)} ${formatTime(now)}`,
-    `作業者: ${taskData['作業者名'] || currentWorkerName || ''}`,
-    `畝ID: ${taskData['畝ID'] || loc.bedId || ''}`,
-    `作業: ${taskData['作業種別名'] || ''}`
-  ];
+      const now = new Date();
+      const taskData = taskRec.data;
+      const loc = readCurrentLocationInputs();
 
-  if (loc.fieldId) stampLines.push(`圃場ID: ${loc.fieldId}`);
-  if (loc.houseId) stampLines.push(`ハウスID: ${loc.houseId}`);
+      const stampLines = [
+        `日時: ${formatDateForSheet(now)} ${formatTime(now)}`,
+        `作業者: ${taskData['作業者名'] || currentWorkerName || ''}`,
+        `畝ID: ${taskData['畝ID'] || loc.bedId || ''}`,
+        `作業: ${taskData['作業種別名'] || ''}`
+      ];
+      if (loc.fieldId) stampLines.push(`圃場ID: ${loc.fieldId}`);
+      if (loc.houseId) stampLines.push(`ハウスID: ${loc.houseId}`);
 
-  const file = await pickImageFileFromCamera();
-  const decoded = await decodeImageToBitmap(file);
-  const stampedBlob = await drawStampedImageToBlob(decoded, stampLines, { maxSide: 1600, jpegQuality: 0.9 });
+      const decoded = await decodeImageToBitmap(file);
+      const stampedBlob = await drawStampedImageToBlob(decoded, stampLines, { maxSide: 1600, jpegQuality: 0.9 });
 
-  // 写真メタ
-  const meta = {
-    kind: kind,
-    taskLocalId: currentTaskLocalId,
-    shiftLocalId: currentShiftLocalId,
-    workerId: currentWorkerId,
-    workerName: currentWorkerName,
-    bedId: taskData['畝ID'] || loc.bedId || '',
-    taskTypeId: taskData['作業種別ID'] || '',
-    taskTypeName: taskData['作業種別名'] || '',
-    takenAtISO: now.toISOString(),
-    stampText: stampLines.join('\n'),
-    mimeType: 'image/jpeg',
-    originalName: file.name || '',
-    originalType: file.type || '',
-    originalSize: file.size || 0
+      const meta = {
+        kind: kind,
+        taskLocalId: currentTaskLocalId,
+        shiftLocalId: currentShiftLocalId,
+        workerId: currentWorkerId,
+        workerName: currentWorkerName,
+        bedId: taskData['畝ID'] || loc.bedId || '',
+        taskTypeId: taskData['作業種別ID'] || '',
+        taskTypeName: taskData['作業種別名'] || '',
+        takenAtISO: now.toISOString(),
+        stampText: stampLines.join('\n'),
+        mimeType: 'image/jpeg',
+        originalName: file.name || '',
+        originalType: file.type || '',
+        originalSize: file.size || 0
+      };
+
+      const photoLocalId = await savePhotoLocal(meta, stampedBlob);
+
+      await updateTaskLocal(currentTaskLocalId, (record) => {
+        const d = record.data;
+        if (kind === 'start') {
+          d['開始写真LocalId'] = photoLocalId;
+          d['開始写真あり'] = true;
+          d['開始写真URL'] = '';
+        } else {
+          d['終了写真LocalId'] = photoLocalId;
+          d['終了写真あり'] = true;
+          d['終了写真URL'] = '';
+        }
+      });
+
+      log(`写真を保存（kind=${kind}, photoLocalId=${photoLocalId}, taskLocalId=${currentTaskLocalId}）`);
+      await refreshPhotoUi();
+
+    } catch (err) {
+      log('写真撮影エラー: ' + err);
+      alert('写真の保存に失敗しました');
+    } finally {
+      // 念のため解放
+      input.value = '';
+    }
   };
 
-  const photoLocalId = await savePhotoLocal(meta, stampedBlob);
-
-  // 作業レコードに紐付け
-  await updateTaskLocal(currentTaskLocalId, (record) => {
-    const d = record.data;
-    if (kind === 'start') {
-      d['開始写真LocalId'] = photoLocalId;
-      d['開始写真あり'] = true;
-      d['開始写真URL'] = ''; // 同期後にDrive URLを入れる想定
-    } else {
-      d['終了写真LocalId'] = photoLocalId;
-      d['終了写真あり'] = true;
-      d['終了写真URL'] = ''; // 同期後にDrive URLを入れる想定
-    }
-  });
-
-  log(`写真を保存（kind=${kind}, photoLocalId=${photoLocalId}, taskLocalId=${currentTaskLocalId}）`);
-
-  await refreshPhotoUi();
+  // ここが最重要：クリックイベントの流れの中で即クリック
+  input.click();
 }
+
 
 // ============================
 // 5. 画面イベント（勤怠）
@@ -1452,4 +1473,5 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
