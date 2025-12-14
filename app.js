@@ -625,11 +625,21 @@ function readCurrentLocationInputs() {
 }
 
 async function pickImageFileFromCamera() {
+  // 1) getUserMedia が使える場合は、直接カメラを起動して撮影
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    try {
+      const blob = await capturePhotoWithGetUserMedia();
+      return blob; // Blob を返す（decodeImageToBitmapはBlob対応済み）
+    } catch (e) {
+      log('getUserMedia撮影に失敗（フォールバックします）: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  // 2) フォールバック：従来の file input（端末によってはカメラ起動しないことがあります）
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
-    // スマホではカメラが優先起動されやすい
     input.capture = 'environment';
 
     input.onchange = () => {
@@ -645,11 +655,134 @@ async function pickImageFileFromCamera() {
   });
 }
 
-async function decodeImageToBitmap(file) {
+async function capturePhotoWithGetUserMedia() {
+  // 画面全体の簡易モーダルを生成して video を表示し、「撮影」で静止画をBlob化します
+  return new Promise(async (resolve, reject) => {
+    let stream = null;
+
+    const overlay = document.createElement('div');
+    overlay.style.position = 'fixed';
+    overlay.style.left = '0';
+    overlay.style.top = '0';
+    overlay.style.right = '0';
+    overlay.style.bottom = '0';
+    overlay.style.background = 'rgba(0,0,0,0.7)';
+    overlay.style.zIndex = '9999';
+    overlay.style.display = 'flex';
+    overlay.style.alignItems = 'center';
+    overlay.style.justifyContent = 'center';
+    overlay.style.padding = '12px';
+
+    const panel = document.createElement('div');
+    panel.style.background = '#fff';
+    panel.style.borderRadius = '10px';
+    panel.style.padding = '10px';
+    panel.style.width = '100%';
+    panel.style.maxWidth = '420px';
+    panel.style.boxSizing = 'border-box';
+
+    const video = document.createElement('video');
+    video.style.width = '100%';
+    video.style.borderRadius = '8px';
+    video.setAttribute('playsinline', ''); // iOS対策
+    video.autoplay = true;
+    video.muted = true;
+
+    const btnRow = document.createElement('div');
+    btnRow.style.display = 'flex';
+    btnRow.style.gap = '8px';
+    btnRow.style.marginTop = '10px';
+
+    const btnShot = document.createElement('button');
+    btnShot.textContent = '撮影';
+    btnShot.className = 'primary';
+    btnShot.style.flex = '1';
+
+    const btnCancel = document.createElement('button');
+    btnCancel.textContent = 'キャンセル';
+    btnCancel.className = 'secondary';
+    btnCancel.style.flex = '1';
+
+    btnRow.appendChild(btnShot);
+    btnRow.appendChild(btnCancel);
+
+    panel.appendChild(video);
+    panel.appendChild(btnRow);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    const cleanup = () => {
+      try {
+        if (stream) {
+          stream.getTracks().forEach(t => t.stop());
+        }
+      } catch (e) {}
+      stream = null;
+
+      try {
+        if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      } catch (e) {}
+    };
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false
+      });
+
+      video.srcObject = stream;
+
+      // iOS等で play が必要になる場合
+      try { await video.play(); } catch (e) {}
+
+    } catch (err) {
+      cleanup();
+      reject(err);
+      return;
+    }
+
+    btnCancel.onclick = () => {
+      cleanup();
+      reject(new Error('撮影をキャンセルしました'));
+    };
+
+    btnShot.onclick = async () => {
+      try {
+        const w = video.videoWidth || 1280;
+        const h = video.videoHeight || 720;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+
+        const ctx = canvas.getContext('2d', { alpha: false });
+        ctx.drawImage(video, 0, 0, w, h);
+
+        canvas.toBlob((blob) => {
+          cleanup();
+          if (!blob) {
+            reject(new Error('撮影画像の生成に失敗しました'));
+            return;
+          }
+          resolve(blob);
+        }, 'image/jpeg', 0.92);
+
+      } catch (e) {
+        cleanup();
+        reject(e);
+      }
+    };
+  });
+}
+
+
+async function decodeImageToBitmap(fileOrBlob) {
+  // fileOrBlob: File でも Blob でもOK
+
   // EXIFの向きを反映できる環境では反映させる
   if (window.createImageBitmap) {
     try {
-      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      const bmp = await createImageBitmap(fileOrBlob, { imageOrientation: 'from-image' });
       return { kind: 'bitmap', bmp };
     } catch (e) {
       // 失敗時はimgデコードへ
@@ -657,7 +790,7 @@ async function decodeImageToBitmap(file) {
   }
 
   const img = await new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
+    const url = URL.createObjectURL(fileOrBlob);
     const i = new Image();
     i.onload = () => { try { URL.revokeObjectURL(url); } catch (e) {} resolve(i); };
     i.onerror = () => { try { URL.revokeObjectURL(url); } catch (e) {} reject(new Error('画像の読み込みに失敗しました')); };
@@ -1319,3 +1452,4 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
