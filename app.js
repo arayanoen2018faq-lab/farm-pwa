@@ -1,5 +1,5 @@
 // app.js
-// 畑管理PWA 試作1号：勤怠＋作業＋IndexedDB＋同期
+// 畑管理PWA 試作1号：勤怠＋作業＋IndexedDB＋同期（写真撮影/スタンプ/IndexedDB保存 追加）
 
 // ============================
 // 1. 設定
@@ -8,15 +8,15 @@
 // ★必ず自分の WebアプリURL に書き換えてください
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwUG5v7e7YuUMJ0A8YDtkmOcHbMYKPgoDWYN6tbfjaBVoxGXMx_v6xj9LNuwfi-CoD9/exec';
 const API_TOKEN = '6F1c9a7b3d2E4f05a1b9c8d2e7f5A4b3';
+
 const DB_NAME = 'farmCoreDB';
-const DB_VERSION = 2;
+const DB_VERSION = 3; // 写真ストア追加のため更新
 const STORE_SHIFTS = 'shifts';
 const STORE_TASKS = 'tasks';
 const STORE_DAILY_WEATHER = 'dailyWeather';
+const STORE_PHOTOS = 'photos';
 
 const TZ_OFFSET_MINUTES = 0; // ここではブラウザのローカル時刻をそのまま使う
-
-
 
 // 画面上の状態保持
 let currentShiftLocalId = null;
@@ -62,13 +62,13 @@ function applyLocationFromUrl() {
   }
 }
 
-
 function log(message) {
   const area = document.getElementById('log');
   const time = new Date().toLocaleTimeString();
   area.textContent += `[${time}] ${message}\n`;
   area.scrollTop = area.scrollHeight;
 }
+
 // ============================
 // マスタ読込（JSONP）
 // ============================
@@ -191,12 +191,9 @@ function applyMastersToPullDown(data) {
 async function initMasters() {
   log('masters 読込開始…');
   const data = await loadMastersViaJsonp();
-  console.log('[masters] raw:', data); // これが出れば「取得できている」確定です
+  console.log('[masters] raw:', data);
   applyMastersToPullDown(data);
 }
-
-
-
 
 function formatDateForSheet(date) {
   const y = date.getFullYear();
@@ -237,6 +234,12 @@ function openFarmCoreDB() {
         const store = db.createObjectStore(STORE_DAILY_WEATHER, { keyPath: 'localId' });
         store.createIndex('isSynced', 'isSynced', { unique: false });
       }
+
+      // 写真ストア（Blobを保存）
+      if (!db.objectStoreNames.contains(STORE_PHOTOS)) {
+        const store = db.createObjectStore(STORE_PHOTOS, { keyPath: 'localId' });
+        store.createIndex('isSynced', 'isSynced', { unique: false });
+      }
     };
 
     req.onsuccess = () => resolve(req.result);
@@ -246,16 +249,18 @@ function openFarmCoreDB() {
 
 function createLocalRecord(type, data) {
   const now = new Date().toISOString();
-  const prefix = type === 'kintai'
-    ? 'shift-'
-    : type === 'sagyo'
-      ? 'task-'
-      : 'daily-';
+  const prefix =
+    type === 'kintai' ? 'shift-' :
+    type === 'sagyo' ? 'task-' :
+    type === 'dailyWeather' ? 'daily-' :
+    type === 'photo' ? 'photo-' :
+    'rec-';
+
   const localId = prefix + Date.now();
   return {
     localId,
-    type,            // "kintai" / "sagyo" / "dailyWeather"
-    serverId: null,  // 同期後に サーバ側ID を入れる想定（今は未使用）
+    type,
+    serverId: null,
     isSynced: false,
     data,
     createdAt: now,
@@ -273,14 +278,8 @@ async function saveKintaiLocal(data) {
   store.put(record);
 
   return new Promise((resolve, reject) => {
-    tx.oncomplete = () => {
-      db.close();
-      resolve(record.localId);
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
+    tx.oncomplete = () => { db.close(); resolve(record.localId); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
 
@@ -294,14 +293,8 @@ async function saveSagyoLocal(data) {
   store.put(record);
 
   return new Promise((resolve, reject) => {
-    tx.oncomplete = () => {
-      db.close();
-      resolve(record.localId);
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
+    tx.oncomplete = () => { db.close(); resolve(record.localId); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
 
@@ -315,18 +308,34 @@ async function saveDailyWeatherLocal(data) {
   store.put(record);
 
   return new Promise((resolve, reject) => {
-    tx.oncomplete = () => {
-      db.close();
-      resolve(record.localId);
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
+    tx.oncomplete = () => { db.close(); resolve(record.localId); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
 
-// 勤怠の更新（退勤時刻など）
+// 写真保存（Blobを含む）
+async function savePhotoLocal(meta, blob) {
+  const db = await openFarmCoreDB();
+  const tx = db.transaction(STORE_PHOTOS, 'readwrite');
+  const store = tx.objectStore(STORE_PHOTOS);
+
+  const record = createLocalRecord('photo', {
+    meta: meta || {}
+  });
+
+  // Blobはrecord直下に置く（そのままIndexedDBに保存可能）
+  record.blob = blob;
+  record.mimeType = (meta && meta.mimeType) ? meta.mimeType : 'image/jpeg';
+
+  store.put(record);
+
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => { db.close(); resolve(record.localId); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
+}
+
+// 勤怠の更新
 async function updateShiftLocal(localId, updater) {
   const db = await openFarmCoreDB();
   const tx = db.transaction(STORE_SHIFTS, 'readwrite');
@@ -348,18 +357,12 @@ async function updateShiftLocal(localId, updater) {
   store.put(record);
 
   return new Promise((resolve, reject) => {
-    tx.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
 
-// 作業の更新（終了時刻など）
+// 作業の更新
 async function updateTaskLocal(localId, updater) {
   const db = await openFarmCoreDB();
   const tx = db.transaction(STORE_TASKS, 'readwrite');
@@ -381,31 +384,56 @@ async function updateTaskLocal(localId, updater) {
   store.put(record);
 
   return new Promise((resolve, reject) => {
-    tx.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
 
-// 未同期レコード取得（インデックスは使わず、全件から絞り込み）
+// 作業レコード取得
+async function getTaskLocal(localId) {
+  const db = await openFarmCoreDB();
+  const tx = db.transaction(STORE_TASKS, 'readonly');
+  const store = tx.objectStore(STORE_TASKS);
+
+  const record = await new Promise((resolve, reject) => {
+    const req = store.get(localId);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+
+  db.close();
+  return record || null;
+}
+
+// 写真レコード取得
+async function getPhotoLocal(localId) {
+  const db = await openFarmCoreDB();
+  const tx = db.transaction(STORE_PHOTOS, 'readonly');
+  const store = tx.objectStore(STORE_PHOTOS);
+
+  const record = await new Promise((resolve, reject) => {
+    const req = store.get(localId);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+
+  db.close();
+  return record || null;
+}
+
+// 未同期レコード取得（全件取得後に絞り込み）
 async function getUnsynced(storeName) {
   const db = await openFarmCoreDB();
   const tx = db.transaction(storeName, 'readonly');
   const store = tx.objectStore(storeName);
 
   const records = await new Promise((resolve, reject) => {
-    const req = store.getAll();              // ここで全件取得
+    const req = store.getAll();
     req.onsuccess = () => resolve(req.result || []);
     req.onerror = () => reject(req.error);
   });
 
   db.close();
-  // isSynced === false のものだけ返す
   return records.filter(r => !r.isSynced);
 }
 
@@ -419,7 +447,6 @@ async function markSynced(storeName, localIds, serverIds) {
     const localId = localIds[i];
     const serverId = serverIds[i] || null;
 
-    // 取得
     const record = await new Promise((resolve, reject) => {
       const req = store.get(localId);
       req.onsuccess = () => resolve(req.result);
@@ -435,14 +462,8 @@ async function markSynced(storeName, localIds, serverIds) {
   }
 
   return new Promise((resolve, reject) => {
-    tx.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
 
@@ -462,7 +483,7 @@ async function syncAll() {
       type: 'kintai',
       records: unsyncedShifts.map(r => {
         const data = Object.assign({}, r.data);
-        data.localId = r.localId; // どのレコードか識別用
+        data.localId = r.localId;
         return data;
       })
     };
@@ -563,7 +584,290 @@ async function syncAll() {
   log('同期完了');
 }
 
+// ============================
+// 4.5 作業写真（開始/終了）：撮影・スタンプ・IndexedDB保存
+// ============================
 
+function setImgPreview(imgEl, blob) {
+  if (!imgEl) return;
+
+  if (imgEl.dataset && imgEl.dataset.objUrl) {
+    try { URL.revokeObjectURL(imgEl.dataset.objUrl); } catch (e) {}
+    imgEl.dataset.objUrl = '';
+  }
+  const url = URL.createObjectURL(blob);
+  if (imgEl.dataset) imgEl.dataset.objUrl = url;
+
+  imgEl.src = url;
+  imgEl.style.display = 'block';
+}
+
+function hideImgPreview(imgEl) {
+  if (!imgEl) return;
+  if (imgEl.dataset && imgEl.dataset.objUrl) {
+    try { URL.revokeObjectURL(imgEl.dataset.objUrl); } catch (e) {}
+    imgEl.dataset.objUrl = '';
+  }
+  imgEl.src = '';
+  imgEl.style.display = 'none';
+}
+
+function setPhotoStatus(text) {
+  const el = document.getElementById('photoStatus');
+  if (el) el.textContent = text;
+}
+
+function readCurrentLocationInputs() {
+  const fieldId = (document.getElementById('dailyFieldIdInput')?.value || '').trim();
+  const houseId = (document.getElementById('dailyHouseIdInput')?.value || '').trim();
+  const bedId = (document.getElementById('bedIdInput')?.value || '').trim();
+  return { fieldId, houseId, bedId };
+}
+
+async function pickImageFileFromCamera() {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    // スマホではカメラが優先起動されやすい
+    input.capture = 'environment';
+
+    input.onchange = () => {
+      const file = input.files && input.files[0];
+      if (!file) {
+        reject(new Error('画像が選択されませんでした'));
+        return;
+      }
+      resolve(file);
+    };
+
+    input.click();
+  });
+}
+
+async function decodeImageToBitmap(file) {
+  // EXIFの向きを反映できる環境では反映させる
+  if (window.createImageBitmap) {
+    try {
+      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      return { kind: 'bitmap', bmp };
+    } catch (e) {
+      // 失敗時はimgデコードへ
+    }
+  }
+
+  const img = await new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const i = new Image();
+    i.onload = () => { try { URL.revokeObjectURL(url); } catch (e) {} resolve(i); };
+    i.onerror = () => { try { URL.revokeObjectURL(url); } catch (e) {} reject(new Error('画像の読み込みに失敗しました')); };
+    i.src = url;
+  });
+
+  return { kind: 'img', img };
+}
+
+function drawStampedImageToBlob(decoded, stampLines, opts) {
+  const maxSide = (opts && opts.maxSide) ? opts.maxSide : 1600;
+  const jpegQuality = (opts && opts.jpegQuality) ? opts.jpegQuality : 0.9;
+
+  let srcW = 0, srcH = 0;
+  if (decoded.kind === 'bitmap') {
+    srcW = decoded.bmp.width;
+    srcH = decoded.bmp.height;
+  } else {
+    srcW = decoded.img.naturalWidth || decoded.img.width;
+    srcH = decoded.img.naturalHeight || decoded.img.height;
+  }
+
+  const scale = Math.min(1, maxSide / Math.max(srcW, srcH));
+  const dstW = Math.max(1, Math.round(srcW * scale));
+  const dstH = Math.max(1, Math.round(srcH * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = dstW;
+  canvas.height = dstH;
+
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  // 画像描画
+  if (decoded.kind === 'bitmap') {
+    ctx.drawImage(decoded.bmp, 0, 0, dstW, dstH);
+  } else {
+    ctx.drawImage(decoded.img, 0, 0, dstW, dstH);
+  }
+
+  // スタンプ描画（左下）
+  const padding = 10;
+  const margin = 10;
+  const fontSize = 18;
+  const lineHeight = Math.round(fontSize * 1.3);
+
+  ctx.font = `${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.textBaseline = 'top';
+
+  const lines = Array.isArray(stampLines) ? stampLines.filter(Boolean) : [];
+  const measuredWidths = lines.map(l => ctx.measureText(l).width);
+  const boxW = Math.min(dstW - margin * 2, Math.ceil(Math.max(0, ...measuredWidths) + padding * 2));
+  const boxH = Math.min(dstH - margin * 2, Math.ceil(lines.length * lineHeight + padding * 2));
+
+  const x = margin;
+  const y = dstH - margin - boxH;
+
+  // 背景
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(x, y, boxW, boxH);
+
+  // 文字
+  ctx.fillStyle = '#ffffff';
+  const textX = x + padding;
+  let textY = y + padding;
+
+  for (const line of lines) {
+    ctx.fillText(line, textX, textY, boxW - padding * 2);
+    textY += lineHeight;
+  }
+
+  // JPEGで保存（容量を抑える）
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('画像の生成に失敗しました'));
+        return;
+      }
+      resolve(blob);
+    }, 'image/jpeg', jpegQuality);
+  });
+}
+
+async function refreshPhotoUi() {
+  const startImg = document.getElementById('photoStartPreview');
+  const endImg = document.getElementById('photoEndPreview');
+
+  if (!currentTaskLocalId) {
+    setPhotoStatus('作業なし');
+    hideImgPreview(startImg);
+    hideImgPreview(endImg);
+    return;
+  }
+
+  const taskRec = await getTaskLocal(currentTaskLocalId);
+  if (!taskRec || !taskRec.data) {
+    setPhotoStatus('作業情報取得失敗');
+    hideImgPreview(startImg);
+    hideImgPreview(endImg);
+    return;
+  }
+
+  const data = taskRec.data;
+
+  const startLocalId = data['開始写真LocalId'] || '';
+  const endLocalId = data['終了写真LocalId'] || '';
+
+  if (!startLocalId && !endLocalId) {
+    setPhotoStatus('未撮影');
+    hideImgPreview(startImg);
+    hideImgPreview(endImg);
+    return;
+  }
+
+  if (startLocalId) {
+    const p = await getPhotoLocal(startLocalId);
+    if (p && p.blob) setImgPreview(startImg, p.blob);
+  } else {
+    hideImgPreview(startImg);
+  }
+
+  if (endLocalId) {
+    const p = await getPhotoLocal(endLocalId);
+    if (p && p.blob) setImgPreview(endImg, p.blob);
+  } else {
+    hideImgPreview(endImg);
+  }
+
+  if (startLocalId && endLocalId) {
+    setPhotoStatus('開始/終了 撮影済み');
+  } else if (startLocalId) {
+    setPhotoStatus('開始のみ 撮影済み');
+  } else {
+    setPhotoStatus('終了のみ 撮影済み');
+  }
+}
+
+async function takeTaskPhoto(kind) {
+  // kind: 'start' / 'end'
+  if (!currentShiftLocalId || !currentWorkerId) {
+    alert('出勤していません（写真撮影は出勤後に行ってください）');
+    return;
+  }
+  if (!currentTaskLocalId) {
+    alert('作業中ではありません（写真は作業開始後、作業終了前に撮影してください）');
+    return;
+  }
+
+  const taskRec = await getTaskLocal(currentTaskLocalId);
+  if (!taskRec || !taskRec.data) {
+    alert('作業情報が取得できませんでした');
+    return;
+  }
+
+  const now = new Date();
+  const taskData = taskRec.data;
+
+  const loc = readCurrentLocationInputs();
+
+  const stampLines = [
+    `日時: ${formatDateForSheet(now)} ${formatTime(now)}`,
+    `作業者: ${taskData['作業者名'] || currentWorkerName || ''}`,
+    `畝ID: ${taskData['畝ID'] || loc.bedId || ''}`,
+    `作業: ${taskData['作業種別名'] || ''}`
+  ];
+
+  if (loc.fieldId) stampLines.push(`圃場ID: ${loc.fieldId}`);
+  if (loc.houseId) stampLines.push(`ハウスID: ${loc.houseId}`);
+
+  const file = await pickImageFileFromCamera();
+  const decoded = await decodeImageToBitmap(file);
+  const stampedBlob = await drawStampedImageToBlob(decoded, stampLines, { maxSide: 1600, jpegQuality: 0.9 });
+
+  // 写真メタ
+  const meta = {
+    kind: kind,
+    taskLocalId: currentTaskLocalId,
+    shiftLocalId: currentShiftLocalId,
+    workerId: currentWorkerId,
+    workerName: currentWorkerName,
+    bedId: taskData['畝ID'] || loc.bedId || '',
+    taskTypeId: taskData['作業種別ID'] || '',
+    taskTypeName: taskData['作業種別名'] || '',
+    takenAtISO: now.toISOString(),
+    stampText: stampLines.join('\n'),
+    mimeType: 'image/jpeg',
+    originalName: file.name || '',
+    originalType: file.type || '',
+    originalSize: file.size || 0
+  };
+
+  const photoLocalId = await savePhotoLocal(meta, stampedBlob);
+
+  // 作業レコードに紐付け
+  await updateTaskLocal(currentTaskLocalId, (record) => {
+    const d = record.data;
+    if (kind === 'start') {
+      d['開始写真LocalId'] = photoLocalId;
+      d['開始写真あり'] = true;
+      d['開始写真URL'] = ''; // 同期後にDrive URLを入れる想定
+    } else {
+      d['終了写真LocalId'] = photoLocalId;
+      d['終了写真あり'] = true;
+      d['終了写真URL'] = ''; // 同期後にDrive URLを入れる想定
+    }
+  });
+
+  log(`写真を保存（kind=${kind}, photoLocalId=${photoLocalId}, taskLocalId=${currentTaskLocalId}）`);
+
+  await refreshPhotoUi();
+}
 
 // ============================
 // 5. 画面イベント（勤怠）
@@ -575,6 +879,9 @@ function updateStatuses() {
 
   document.getElementById('taskStatus').textContent =
     currentTaskLocalId ? `作業中（${currentTaskLocalId}）` : '作業なし';
+
+  // 写真UIも追随
+  refreshPhotoUi().catch(err => log('写真UI更新エラー: ' + err));
 }
 
 async function onClockIn() {
@@ -605,10 +912,9 @@ async function onClockIn() {
     休憩詳細: '',
     実働分: 0,
     メモ: '',
-    // ここから下は内部用（シート側に列がなければ無視されます）
-    __startISO: startISO,              // 出勤時刻（ISO文字列）
-    __breakTotalMs: 0,                 // 休憩累計ミリ秒
-    __breakCurrentStartISO: null       // 進行中の休憩の開始時刻（なければ null）
+    __startISO: startISO,
+    __breakTotalMs: 0,
+    __breakCurrentStartISO: null
   };
 
   const localId = await saveKintaiLocal(data);
@@ -632,14 +938,11 @@ async function onClockOut() {
   await updateShiftLocal(currentShiftLocalId, (record) => {
     const data = record.data;
 
-    // 退勤時刻をセット
     data['退勤時刻'] = formatTime(now);
 
     const startISO = data['__startISO'];
     let breakTotalMs = data['__breakTotalMs'] || 0;
 
-    // もし「休憩開始」したまま「休憩終了」を押さずに退勤した場合、
-    // 退勤時刻までを休憩時間として加算する
     const breakCurrentISO = data['__breakCurrentStartISO'];
     if (breakCurrentISO) {
       const breakStart = new Date(breakCurrentISO);
@@ -648,7 +951,6 @@ async function onClockOut() {
       data['__breakTotalMs'] = breakTotalMs;
     }
 
-    // 実働時間を計算（開始時刻が記録されている場合のみ）
     if (startISO) {
       const startDate = new Date(startISO);
 
@@ -663,7 +965,6 @@ async function onClockOut() {
 
   log(`退勤を更新（localId=${currentShiftLocalId}）`);
 
-  // 状態リセット
   currentShiftLocalId = null;
   currentTaskLocalId = null;
   currentWorkerId = null;
@@ -681,15 +982,12 @@ async function onBreakStart() {
 
   const now = new Date();
 
-  // 1) 作業中なら、この時刻で一旦「作業終了」にし、再開用テンプレートを残す
   if (currentTaskLocalId) {
     await updateTaskLocal(currentTaskLocalId, (record) => {
       const data = record.data;
 
-      // この時刻でいったん終了
       data['終了時刻'] = formatTime(now);
 
-      // 休憩後に自動再開するためのテンプレートを保存
       pausedTaskTemplate = {
         畝ID: data['畝ID'],
         圃場ID: data['圃場ID'],
@@ -711,16 +1009,13 @@ async function onBreakStart() {
 
     log(`休憩開始に伴い、進行中の作業を一時停止しました（localId=${currentTaskLocalId}）`);
 
-    // いまは「作業なし」の状態にする
     currentTaskLocalId = null;
     updateStatuses();
   }
 
-  // 2) 勤怠側の「休憩開始」を記録し、休憩時間の計測を開始
   await updateShiftLocal(currentShiftLocalId, (record) => {
     const data = record.data;
 
-    // すでに休憩中なら二重開始を防止
     if (data['__breakCurrentStartISO']) {
       return;
     }
@@ -742,7 +1037,6 @@ async function onBreakEnd() {
 
   const now = new Date();
 
-  // 1) 勤怠側の休憩終了と休憩累計の更新
   await updateShiftLocal(currentShiftLocalId, (record) => {
     const data = record.data;
 
@@ -751,7 +1045,7 @@ async function onBreakEnd() {
 
     if (startISO) {
       const startDate = new Date(startISO);
-      totalMs += (now - startDate);           // 今回の休憩ぶんを足し込む
+      totalMs += (now - startDate);
       data['__breakTotalMs'] = totalMs;
       data['__breakCurrentStartISO'] = null;
 
@@ -765,7 +1059,6 @@ async function onBreakEnd() {
 
   log('休憩終了を記録');
 
-  // 2) 休憩前に一時停止していた作業があれば、自動で再開する
   if (!currentTaskLocalId && pausedTaskTemplate && currentWorkerId && currentShiftLocalId) {
     const t = pausedTaskTemplate;
 
@@ -794,13 +1087,15 @@ async function onBreakEnd() {
       終了写真URL: '',
       開始写真あり: false,
       終了写真あり: false,
+      開始写真LocalId: '',
+      終了写真LocalId: '',
       機械作業フラグ: t.機械作業フラグ ?? false,
       メモ: t.メモ || ''
     };
 
     const newLocalId = await saveSagyoLocal(data);
     currentTaskLocalId = newLocalId;
-    pausedTaskTemplate = null;   // 再開済みなのでクリア
+    pausedTaskTemplate = null;
 
     updateStatuses();
     log(`休憩終了に伴い、作業を自動再開しました（localId=${newLocalId}）`);
@@ -825,7 +1120,6 @@ async function onTaskStart() {
     return;
   }
 
-  // 手動で新しい作業を開始したので、「休憩からの自動再開」テンプレートは不要
   pausedTaskTemplate = null;
 
   const bedId = document.getElementById('bedIdInput').value.trim();
@@ -846,7 +1140,7 @@ async function onTaskStart() {
   const now = new Date();
   const data = {
     作業ID: '',
-    勤怠ID: currentShiftLocalId,    // いまの勤怠と紐付け
+    勤怠ID: currentShiftLocalId,
     作業者ID: currentWorkerId,
     作業者名: currentWorkerName,
     作業日: formatDateForSheet(now),
@@ -869,12 +1163,15 @@ async function onTaskStart() {
     終了写真URL: '',
     開始写真あり: false,
     終了写真あり: false,
+    開始写真LocalId: '',
+    終了写真LocalId: '',
     機械作業フラグ: false,
     メモ: memo
   };
 
   const localId = await saveSagyoLocal(data);
   currentTaskLocalId = localId;
+
   updateStatuses();
   log(`作業開始を保存（localId=${localId}）`);
 }
@@ -904,7 +1201,6 @@ async function onSaveDailyWeather() {
 
   const fieldIdInput     = document.getElementById('dailyFieldIdInput');
   const houseIdInput     = document.getElementById('dailyHouseIdInput');
-  // 畝IDは「作業操作」セクションの入力を共用
   const bedIdInput       = document.getElementById('bedIdInput');
 
   const maxTempIn        = document.getElementById('dailyMaxTempInput');
@@ -920,14 +1216,13 @@ async function onSaveDailyWeather() {
   const methodIn         = document.getElementById('dailyMethodInput');
   const memoIn           = document.getElementById('dailyMemoInput');
 
-  const dateValue = dateInput.value; // "YYYY-MM-DD"
+  const dateValue = dateInput.value;
   if (!dateValue) {
     alert('日付を入力してください');
     return;
   }
 
   const data = {
-    // 日付・環境値
     date:          dateValue,
     maxTemp:       maxTempIn.value,
     minTemp:       minTempIn.value,
@@ -939,7 +1234,6 @@ async function onSaveDailyWeather() {
     ec:            ecIn.value,
     method:        methodIn.value,
     memo:          memoIn.value,
-    // 位置情報（圃場・ハウス・畝）
     fieldId:       fieldIdInput.value,
     houseId:       houseIdInput.value,
     bedId:         bedIdInput ? bedIdInput.value : ''
@@ -952,7 +1246,6 @@ async function onSaveDailyWeather() {
     `fieldId=${data.fieldId}, houseId=${data.houseId}, bedId=${data.bedId}）`
   );
 
-  // 日付と位置情報は残し、数値とメモだけクリアする
   maxTempIn.value       = '';
   minTempIn.value       = '';
   maxSoilIn.value       = '';
@@ -964,7 +1257,6 @@ async function onSaveDailyWeather() {
   methodIn.value        = '';
   memoIn.value          = '';
 }
-
 
 // ============================
 // 8. 初期化
@@ -996,6 +1288,14 @@ window.addEventListener('load', () => {
     onTaskEnd().catch(err => log('作業終了エラー: ' + err));
   });
 
+  // 写真ボタン
+  document.getElementById('btnPhotoStart').addEventListener('click', () => {
+    takeTaskPhoto('start').catch(err => log('開始写真エラー: ' + err));
+  });
+  document.getElementById('btnPhotoEnd').addEventListener('click', () => {
+    takeTaskPhoto('end').catch(err => log('終了写真エラー: ' + err));
+  });
+
   document.getElementById('btnSync').addEventListener('click', () => {
     syncAll().catch(err => log('同期エラー: ' + err));
   });
@@ -1008,11 +1308,14 @@ window.addEventListener('load', () => {
   window.addEventListener('online', updateOnlineStatus);
   window.addEventListener('offline', updateOnlineStatus);
 
-  // URLの ?fieldId= / ?houseId= / ?bedId= を入力欄に反映
   applyLocationFromUrl();
 
   updateStatuses();
-initMasters().catch(err => { log('masters 読込失敗: ' + err); alert('masters の読み込みに失敗しました。F12 Console を確認してください。'); });
+
+  initMasters().catch(err => {
+    log('masters 読込失敗: ' + err);
+    alert('masters の読み込みに失敗しました。F12 Console を確認してください。');
+  });
 
   log('アプリ初期化完了');
 });
