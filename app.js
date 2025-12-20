@@ -509,7 +509,7 @@ async function syncAll() {
     log('未同期の勤怠はありません');
   }
 
-  // 2) 作業の同期
+    // 2) 作業の同期
   const unsyncedTasks = await getUnsynced(STORE_TASKS);
   if (unsyncedTasks.length > 0) {
     log(`未同期の作業: ${unsyncedTasks.length}件`);
@@ -519,7 +519,17 @@ async function syncAll() {
       type: 'sagyo',
       records: unsyncedTasks.map(r => {
         const data = Object.assign({}, r.data);
+
+        // 既存：サーバ側で追跡できるように localId も入れている
         data.localId = r.localId;
+
+        // 追加：写真と突合するための「ローカル作業ID」を明示的に同梱する
+        // （GAS 側の logSagyo が AB 列に保存する想定）
+        data['ローカル作業ID'] = r.localId;
+
+        // 互換用（どちらでも拾えるようにしておく）
+        data.taskLocalId = r.localId;
+
         return data;
       })
     };
@@ -544,6 +554,7 @@ async function syncAll() {
   } else {
     log('未同期の作業はありません');
   }
+
 
   // 3) 日別気温・地温の同期
   const unsyncedDailyWeather = await getUnsynced(STORE_DAILY_WEATHER);
@@ -1534,6 +1545,7 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
 
