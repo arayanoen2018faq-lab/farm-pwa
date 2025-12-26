@@ -504,43 +504,31 @@ async function getRecordByLocalId_(storeName, localId) {
   return rec;
 }
 
-async function putRecord_(storeName, record) {
-  const db = await openFarmCoreDB();
-  const tx = db.transaction(storeName, 'readwrite');
-  const store = tx.objectStore(storeName);
+async function applyTaskRecordToUi_(taskLocalId) {
+  if (!taskLocalId) return;
 
-  await new Promise((resolve, reject) => {
-    const req = store.put(record);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
+  const rec = await getRecordByLocalId_(STORE_TASKS, taskLocalId);
+  if (!rec || !rec.data) return;
 
-  await new Promise((resolve, reject) => {
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror = () => { db.close(); reject(tx.error); };
-  });
-}
+  const d = rec.data;
 
-function applyTaskDataToUi_(taskData) {
-  const d = taskData || {};
+  const bedIdInput   = document.getElementById('bedIdInput');
+  const taskTypeSel  = document.getElementById('taskTypeSelect');
+  const taskMemo     = document.getElementById('taskMemo');
 
-  const bedIdInput = document.getElementById('bedIdInput');
-  const taskTypeSelect = document.getElementById('taskTypeSelect');
-  const taskMemo = document.getElementById('taskMemo');
+  const bedId   = String(d['畝ID'] ?? '').trim();
+  const taskKey = String(d['作業種別'] ?? '').trim();
+  const memo    = String(d['メモ'] ?? '').trim();
 
-  const bedId = String(d['畝ID'] || '').trim();
-  const taskType = String(d['作業種別'] || '').trim();
-  const memo = String(d['メモ'] || '');
-
-  if (bedIdInput && bedId) bedIdInput.value = bedId;
+  if (bedIdInput) bedIdInput.value = bedId;
   if (taskMemo) taskMemo.value = memo;
 
-  if (taskTypeSelect && taskType) {
-    const has = Array.from(taskTypeSelect.options).some(o => String(o.value) === taskType);
-    if (has) taskTypeSelect.value = taskType;
+  // 作業種別は、マスタ反映で option が入っている前提。存在する場合のみセット
+  if (taskTypeSel) {
+    const has = Array.from(taskTypeSel.options).some(o => String(o.value) === taskKey);
+    if (has) taskTypeSel.value = taskKey;
   }
 }
-
 
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => { db.close(); resolve(); };
@@ -711,7 +699,7 @@ async function syncAll() {
     log('未同期の勤怠はありません');
   }
 
-    // 2) 作業の同期
+   // 2) 作業の同期
 const unsyncedTasks = await getUnsynced(STORE_TASKS);
 if (unsyncedTasks.length > 0) {
   log(`未同期の作業: ${unsyncedTasks.length}件`);
@@ -770,6 +758,7 @@ if (unsyncedTasks.length > 0) {
 } else {
   log('未同期の作業はありません');
 }
+
 
   // 3) 日別気温・地温の同期
   const unsyncedDailyWeather = await getUnsynced(STORE_DAILY_WEATHER);
@@ -1728,53 +1717,31 @@ window.addEventListener('load', () => {
   document.getElementById('btnTaskEnd').addEventListener('click', async () => {
   try {
     if (!currentTaskLocalId) {
-      log('作業終了: 作業中のデータがありません');
+      log('作業終了: 作業中のデータがありません（currentTaskLocalId が空）');
+      return;
+    }
+
+    const rec = await getRecordByLocalId_(STORE_TASKS, currentTaskLocalId);
+    if (!rec || !rec.data) {
+      log('作業終了: 作業レコードが見つかりません（DBに存在しない）');
       return;
     }
 
     const nowIso = new Date().toISOString();
-
-    // 既存の作業レコードを必ずDBから読み、空UIで壊さない
-    const rec = await getRecordByLocalId_(STORE_TASKS, currentTaskLocalId);
-    if (!rec) {
-      log('作業終了: 作業レコードが見つかりません');
-      return;
-    }
-
-    const d = rec.data || {};
-
-    // UIから取れるものは採用。ただし空なら既存値を保持する
-    const bedIdInput = document.getElementById('bedIdInput');
-    const taskTypeSelect = document.getElementById('taskTypeSelect');
-    const taskMemo = document.getElementById('taskMemo');
-
-    const uiBedId = bedIdInput ? String(bedIdInput.value || '').trim() : '';
-    const uiTaskType = taskTypeSelect ? String(taskTypeSelect.value || '').trim() : '';
-    const uiMemo = taskMemo ? String(taskMemo.value || '') : '';
-
-    if (uiBedId) d['畝ID'] = uiBedId;
-    if (uiTaskType) d['作業種別'] = uiTaskType;
-    if (uiMemo.trim() !== '') d['メモ'] = uiMemo;
-
-    d['終了時刻'] = nowIso;
-
-    rec.data = d;
-    rec.isSynced = false;
-    rec.serverId = null;
+    rec.data['終了時刻'] = nowIso;
     rec.updatedAt = nowIso;
 
     await putRecord_(STORE_TASKS, rec);
 
+    log(`作業終了: DBに終了時刻を保存しました（task=${currentTaskLocalId}）`);
+
     currentTaskLocalId = null;
     updateStatuses();
-    log('作業終了: 保存しました');
 
   } catch (e) {
-    log('作業終了エラー: ' + (e && e.message ? e.message : e));
+    log('作業終了: 失敗 ' + (e && e.message ? e.message : e));
   }
 });
-
-
 
   // 写真ボタン
   document.getElementById('btnPhotoStart').addEventListener('click', () => {
@@ -1807,6 +1774,7 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
 
