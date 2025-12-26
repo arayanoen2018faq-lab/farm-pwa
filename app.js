@@ -193,6 +193,17 @@ async function initMasters() {
   const data = await loadMastersViaJsonp();
   console.log('[masters] raw:', data);
   applyMastersToPullDown(data);
+
+  // ★マスタ反映が終わった後に「自動復帰」を実行
+  try {
+    await restoreCurrentStateFromIndexedDB();
+    log('自動復帰：完了');
+  } catch (e) {
+    log('自動復帰：失敗 ' + (e && e.message ? e.message : e));
+  }
+
+  // 画面表示を更新（復帰結果を反映）
+  updateStatuses();
 }
 
 function formatDateForSheet(date) {
@@ -1675,6 +1686,7 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
 
