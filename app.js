@@ -489,6 +489,39 @@ async function markSynced(storeName, localIds, serverIds) {
   });
 }
 
+async function getRecordByLocalId_(storeName, localId) {
+  const db = await openFarmCoreDB();
+  const tx = db.transaction(storeName, 'readonly');
+  const store = tx.objectStore(storeName);
+
+  const rec = await new Promise((resolve, reject) => {
+    const req = store.get(localId);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+
+  db.close();
+  return rec;
+}
+
+async function putRecord_(storeName, record) {
+  const db = await openFarmCoreDB();
+  const tx = db.transaction(storeName, 'readwrite');
+  const store = tx.objectStore(storeName);
+
+  await new Promise((resolve, reject) => {
+    const req = store.put(record);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
+}
+
+
 // ============================
 // 自動復帰（IndexedDBから「未退勤」「未終了」を探す）
 // ※貼り付け場所：markSynced の直後、// 4. 同期処理 の前
@@ -1625,9 +1658,35 @@ window.addEventListener('load', () => {
   document.getElementById('btnTaskStart').addEventListener('click', () => {
     onTaskStart().catch(err => log('作業開始エラー: ' + err));
   });
-  document.getElementById('btnTaskEnd').addEventListener('click', () => {
-    onTaskEnd().catch(err => log('作業終了エラー: ' + err));
-  });
+  document.getElementById('btnTaskEnd').addEventListener('click', async () => {
+  try {
+    if (!currentTaskLocalId) {
+      log('作業終了: 作業中のデータがありません（currentTaskLocalId が空）');
+      return;
+    }
+
+    const rec = await getRecordByLocalId_(STORE_TASKS, currentTaskLocalId);
+    if (!rec || !rec.data) {
+      log('作業終了: 作業レコードが見つかりません（DBに存在しない）');
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    rec.data['終了時刻'] = nowIso;
+    rec.updatedAt = nowIso;
+
+    await putRecord_(STORE_TASKS, rec);
+
+    log(`作業終了: DBに終了時刻を保存しました（task=${currentTaskLocalId}）`);
+
+    currentTaskLocalId = null;
+    updateStatuses();
+
+  } catch (e) {
+    log('作業終了: 失敗 ' + (e && e.message ? e.message : e));
+  }
+});
+
 
   // 写真ボタン
   document.getElementById('btnPhotoStart').addEventListener('click', () => {
@@ -1660,6 +1719,7 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
 
