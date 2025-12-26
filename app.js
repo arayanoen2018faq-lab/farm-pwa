@@ -335,7 +335,7 @@ async function savePhotoLocal(meta, blob) {
   });
 }
 
-// 勤怠の更新
+// 勤怠の更新（置き換え）
 async function updateShiftLocal(localId, updater) {
   const db = await openFarmCoreDB();
   const tx = db.transaction(STORE_SHIFTS, 'readwrite');
@@ -353,7 +353,12 @@ async function updateShiftLocal(localId, updater) {
   }
 
   updater(record);
+
   record.updatedAt = new Date().toISOString();
+
+  // 重要：内容を更新したら「未同期」に戻す（終了時刻の上書き同期のため）
+  record.isSynced = false;
+
   store.put(record);
 
   return new Promise((resolve, reject) => {
@@ -362,7 +367,7 @@ async function updateShiftLocal(localId, updater) {
   });
 }
 
-// 作業の更新
+// 作業の更新（置き換え）
 async function updateTaskLocal(localId, updater) {
   const db = await openFarmCoreDB();
   const tx = db.transaction(STORE_TASKS, 'readwrite');
@@ -380,7 +385,12 @@ async function updateTaskLocal(localId, updater) {
   }
 
   updater(record);
+
   record.updatedAt = new Date().toISOString();
+
+  // 重要：内容を更新したら「未同期」に戻す（終了時刻の上書き同期のため）
+  record.isSynced = false;
+
   store.put(record);
 
   return new Promise((resolve, reject) => {
@@ -1545,6 +1555,7 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
 
