@@ -490,10 +490,11 @@ async function markSynced(storeName, localIds, serverIds) {
 }
 
 // ============================
-// 3.x 自動復帰（IndexedDBから現在状態を復元）
+// 自動復帰（IndexedDBから「未退勤」「未終了」を探す）
+// ※貼り付け場所：markSynced の直後、// 4. 同期処理 の前
 // ============================
 
-async function getAllRecords_(storeName) {
+async function getAllRecords(storeName) {
   const db = await openFarmCoreDB();
   const tx = db.transaction(storeName, 'readonly');
   const store = tx.objectStore(storeName);
@@ -508,105 +509,78 @@ async function getAllRecords_(storeName) {
   return records;
 }
 
-function toMs_(isoString) {
-  const t = Date.parse(String(isoString || ''));
-  return Number.isFinite(t) ? t : 0;
+function pickLatest(records) {
+  if (!records || records.length === 0) return null;
+  const sorted = records.slice().sort((a, b) => {
+    const ta = Date.parse(a.updatedAt || a.createdAt || 0) || 0;
+    const tb = Date.parse(b.updatedAt || b.createdAt || 0) || 0;
+    return tb - ta;
+  });
+  return sorted[0] || null;
 }
 
-function pickLatest_(records) {
-  if (!Array.isArray(records) || records.length === 0) return null;
-
-  let best = null;
-  let bestKey = -1;
-
-  for (const r of records) {
-    const key = Math.max(toMs_(r.updatedAt), toMs_(r.createdAt));
-    if (key > bestKey) {
-      bestKey = key;
-      best = r;
-    }
-  }
-  return best;
-}
-
-// 未退勤（退勤時刻が空）の勤怠を探す。workerId指定があればその作業者に限定
-async function findOpenShift_(workerId) {
-  const all = await getAllRecords_(STORE_SHIFTS);
-
-  const open = all.filter(r => {
-    const d = (r && r.data) ? r.data : {};
-    const out = String(d['退勤時刻'] ?? '');
-    const wid = String(d['作業者ID'] ?? '');
-    const isOpen = (out.trim() === '');
-    if (!isOpen) return false;
-    if (workerId) return wid === String(workerId);
-    return true;
+async function restoreCurrentStateFromIndexedDB() {
+  // 1) 未退勤の勤怠（退勤時刻が空）を探す
+  const shifts = await getAllRecords(STORE_SHIFTS);
+  const activeShifts = shifts.filter(r => {
+    const d = r && r.data ? r.data : null;
+    if (!d) return false;
+    const out = String(d['退勤時刻'] || '').trim();
+    return out === '';
   });
 
-  return pickLatest_(open);
-}
+  const shiftRec = pickLatest(activeShifts);
 
-// 指定勤怠IDに紐づく「未終了（終了時刻が空）」の作業を探す
-async function findOpenTaskByShift_(shiftLocalId) {
-  if (!shiftLocalId) return null;
-
-  const all = await getAllRecords_(STORE_TASKS);
-
-  const open = all.filter(r => {
-    const d = (r && r.data) ? r.data : {};
-    const sid = String(d['勤怠ID'] ?? '');
-    const end = String(d['終了時刻'] ?? '');
-    return (sid === String(shiftLocalId)) && (end.trim() === '');
-  });
-
-  return pickLatest_(open);
-}
-
-// マスタ反映後に呼ぶ想定：DBから「出勤中／作業中」を復元する
-async function restoreSessionFromDb_(opts) {
-  const workerId = opts && opts.workerId ? String(opts.workerId) : '';
-
-  // すでにメモリ上で出勤中なら、勝手に上書きしない
-  if (currentShiftLocalId) {
-    return { restored: false, reason: 'already_in_memory' };
-  }
-
-  const shift = await findOpenShift_(workerId);
-  if (!shift) {
-    return { restored: false, reason: 'no_open_shift' };
-  }
-
-  const sd = shift.data || {};
-  const wid = String(sd['作業者ID'] ?? '');
-  const wname = String(sd['作業者名'] ?? '');
-
-  currentShiftLocalId = shift.localId;
-  currentWorkerId = wid;
-  currentWorkerName = wname;
-
-  // UI（作業者プルダウン）を合わせる：optionが存在する場合のみ反映
-  const workerSelect = document.getElementById('workerSelect');
-  if (workerSelect && wid) {
-    const has = Array.from(workerSelect.options).some(o => String(o.value) === wid);
-    if (has) workerSelect.value = wid;
-  }
-
-  // 未終了作業があれば復元
-  const task = await findOpenTaskByShift_(currentShiftLocalId);
-  if (task) {
-    currentTaskLocalId = task.localId;
-  } else {
+  if (!shiftRec) {
+    currentShiftLocalId = null;
+    currentWorkerId = null;
+    currentWorkerName = null;
     currentTaskLocalId = null;
+
+    // UI
+    const workerSelect = document.getElementById('workerSelect');
+    if (workerSelect) workerSelect.disabled = false;
+
+    updateStatuses();
+    log('自動復帰: 未退勤の勤怠なし');
+    return;
   }
+
+  currentShiftLocalId = shiftRec.localId;
+
+  const sd = shiftRec.data || {};
+  currentWorkerId = String(sd['作業者ID'] || '').trim() || null;
+  currentWorkerName = String(sd['作業者名'] || '').trim() || null;
+
+  // マスタ反映後なら、作業者プルダウンを合わせる（存在すれば）
+  const workerSelect = document.getElementById('workerSelect');
+  if (workerSelect && currentWorkerId) {
+    workerSelect.value = currentWorkerId;
+    workerSelect.disabled = true; // 出勤中は作業者のすり替えを防止
+  }
+
+  // 2) 未終了の作業（終了時刻が空）を探す（勤怠IDが一致するものだけ）
+  const tasks = await getAllRecords(STORE_TASKS);
+  const activeTasks = tasks.filter(r => {
+    const d = r && r.data ? r.data : null;
+    if (!d) return false;
+    const end = String(d['終了時刻'] || '').trim();
+    const kintaiId = String(d['勤怠ID'] || '').trim();
+    return end === '' && kintaiId === currentShiftLocalId;
+  });
+
+  const taskRec = pickLatest(activeTasks);
+
+  currentTaskLocalId = taskRec ? taskRec.localId : null;
 
   updateStatuses();
-  return {
-    restored: true,
-    shiftLocalId: currentShiftLocalId,
-    taskLocalId: currentTaskLocalId
-  };
-}
 
+  if (currentTaskLocalId) {
+    log(`自動復帰: 出勤中 + 作業中 を復帰しました（shift=${currentShiftLocalId}, task=${currentTaskLocalId}）`);
+  } else {
+    log(`自動復帰: 出勤中（作業なし）を復帰しました（shift=${currentShiftLocalId}）`);
+  }
+}
 
 // ============================
 // 4. 同期処理（no-cors 版）
@@ -1686,6 +1660,7 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
 
