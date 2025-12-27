@@ -190,6 +190,17 @@ async function initMasters() {
   const data = await loadMastersViaJsonp();
   console.log('[masters] raw:', data);
   applyMastersToPullDown(data);
+
+  // ★マスタ反映が終わった後に「自動復帰」を実行
+  try {
+    await restoreCurrentStateFromIndexedDB();
+    log('自動復帰：完了');
+  } catch (e) {
+    log('自動復帰：失敗 ' + (e && e.message ? e.message : e));
+  }
+
+  // 画面表示を更新（復帰結果を反映）
+  updateStatuses();
 }
 
 function formatDateForSheet(date) {
@@ -336,6 +347,11 @@ async function updateShiftLocal(localId, updater) {
   }
 
   updater(record);
+
+  // ★更新が入ったら「再同期対象」に戻す
+  record.isSynced = false;
+  record.serverId = null;
+
   record.updatedAt = new Date().toISOString();
   store.put(record);
 
@@ -363,6 +379,11 @@ async function updateTaskLocal(localId, updater) {
   }
 
   updater(record);
+
+  // ★更新が入ったら「再同期対象」に戻す
+  record.isSynced = false;
+  record.serverId = null;
+
   record.updatedAt = new Date().toISOString();
   store.put(record);
 
@@ -448,6 +469,100 @@ async function markSynced(storeName, localIds, serverIds) {
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => { db.close(); reject(tx.error); };
   });
+}
+
+
+// ============================
+// 自動復帰（IndexedDBから「未退勤」「未終了」を探す）
+// ※貼り付け場所：markSynced の直後、// 4. 同期処理 の前
+// ============================
+
+async function getAllRecords(storeName) {
+  const db = await openFarmCoreDB();
+  const tx = db.transaction(storeName, 'readonly');
+  const store = tx.objectStore(storeName);
+
+  const records = await new Promise((resolve, reject) => {
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+
+  db.close();
+  return records;
+}
+
+function pickLatest(records) {
+  if (!records || records.length === 0) return null;
+  const sorted = records.slice().sort((a, b) => {
+    const ta = Date.parse(a.updatedAt || a.createdAt || 0) || 0;
+    const tb = Date.parse(b.updatedAt || b.createdAt || 0) || 0;
+    return tb - ta;
+  });
+  return sorted[0] || null;
+}
+
+async function restoreCurrentStateFromIndexedDB() {
+  // 1) 未退勤の勤怠（退勤時刻が空）を探す
+  const shifts = await getAllRecords(STORE_SHIFTS);
+  const activeShifts = shifts.filter(r => {
+    const d = r && r.data ? r.data : null;
+    if (!d) return false;
+    const out = String(d['退勤時刻'] || '').trim();
+    return out === '';
+  });
+
+  const shiftRec = pickLatest(activeShifts);
+
+  if (!shiftRec) {
+    currentShiftLocalId = null;
+    currentWorkerId = null;
+    currentWorkerName = null;
+    currentTaskLocalId = null;
+
+    // UI
+    const workerSelect = document.getElementById('workerSelect');
+    if (workerSelect) workerSelect.disabled = false;
+
+    updateStatuses();
+    log('自動復帰: 未退勤の勤怠なし');
+    return;
+  }
+
+  currentShiftLocalId = shiftRec.localId;
+
+  const sd = shiftRec.data || {};
+  currentWorkerId = String(sd['作業者ID'] || '').trim() || null;
+  currentWorkerName = String(sd['作業者名'] || '').trim() || null;
+
+  // マスタ反映後なら、作業者プルダウンを合わせる（存在すれば）
+  const workerSelect = document.getElementById('workerSelect');
+  if (workerSelect && currentWorkerId) {
+    workerSelect.value = currentWorkerId;
+    workerSelect.disabled = true; // 出勤中は作業者のすり替えを防止
+  }
+
+  // 2) 未終了の作業（終了時刻が空）を探す（勤怠IDが一致するものだけ）
+  const tasks = await getAllRecords(STORE_TASKS);
+  const activeTasks = tasks.filter(r => {
+    const d = r && r.data ? r.data : null;
+    if (!d) return false;
+    const end = String(d['終了時刻'] || '').trim();
+    const kintaiId = String(d['勤怠ID'] || '').trim();
+    return end === '' && kintaiId === currentShiftLocalId;
+  });
+
+  const taskRec = pickLatest(activeTasks);
+
+  currentTaskLocalId = taskRec ? taskRec.localId : null;
+
+  updateStatuses();
+
+  if (currentTaskLocalId) {
+    log(`自動復帰: 出勤中 + 作業中 を復帰しました（shift=${currentShiftLocalId}, task=${currentTaskLocalId}）`);
+  } else {
+    log(`自動復帰: 出勤中（作業なし）を復帰しました（shift=${currentShiftLocalId}）`);
+  }
 }
 
 // ============================
@@ -1474,3 +1589,4 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
