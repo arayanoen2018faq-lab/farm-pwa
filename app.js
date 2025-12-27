@@ -477,6 +477,24 @@ async function markSynced(storeName, localIds, serverIds) {
 // ※貼り付け場所：markSynced の直後、// 4. 同期処理 の前
 // ============================
 
+async function countUnsynced_(storeName) {
+  const db = await openFarmCoreDB();
+  const tx = db.transaction(storeName, 'readonly');
+  const store = tx.objectStore(storeName);
+
+  const records = await new Promise((resolve, reject) => {
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+
+  db.close();
+
+  const unsynced = records.filter(r => !r || r.isSynced !== true);
+  return { total: records.length, unsynced: unsynced.length, sample: unsynced[0] || null };
+}
+
+
 async function getAllRecords(storeName) {
   const db = await openFarmCoreDB();
   const tx = db.transaction(storeName, 'readonly');
@@ -608,50 +626,65 @@ async function syncAll() {
   }
 
   // 2) 作業の同期
-  const unsyncedTasks = await getUnsynced(STORE_TASKS);
-  if (unsyncedTasks.length > 0) {
-    log(`未同期の作業: ${unsyncedTasks.length}件`);
+const unsyncedTasks = await getUnsynced(STORE_TASKS);
+if (unsyncedTasks.length > 0) {
+  log(`未同期の作業: ${unsyncedTasks.length}件`);
 
-    const payload = {
-      token: API_TOKEN,
-      type: 'sagyo',
-      records: unsyncedTasks.map(r => {
-        const data = Object.assign({}, r.data);
+  const payload = {
+    token: API_TOKEN,
+    type: 'sagyo',
+    records: unsyncedTasks.map(r => {
+      const data = Object.assign({}, r.data);
 
-        // 既存：サーバ側で追跡できるように localId も入れている
-        data.localId = r.localId;
+      data.localId = r.localId;
 
-        // 追加：写真と突合するための「ローカル作業ID」を明示的に同梱する
-        // （GAS 側の logSagyo が AB 列に保存する想定）
-        data['ローカル作業ID'] = r.localId;
+      data['ローカル作業ID'] = r.localId;
+      data.taskLocalId = r.localId;
 
-        // 互換用（どちらでも拾えるようにしておく）
-        data.taskLocalId = r.localId;
+      return data;
+    })
+  };
 
-        return data;
-      })
-    };
+  const localIds = unsyncedTasks.map(r => r.localId);
 
-    const localIds = unsyncedTasks.map(r => r.localId);
-
-    try {
-      await fetch(WEB_APP_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify(payload)
-      });
-
-      log('作業データをWebアプリへ送信しました（no-cors）');
-
-      const serverIds = localIds.map(() => null);
-      await markSynced(STORE_TASKS, localIds, serverIds);
-    } catch (err) {
-      log('作業同期エラー: ' + err);
-    }
-  } else {
-    log('未同期の作業はありません');
+  // ===== デバッグログ：送信前に中身を確認 =====
+  try {
+    const first = payload.records[0] || {};
+    const keys = [
+      '作業者ID','作業者名','勤怠ID','畝ID','作業種別',
+      '開始時刻','終了時刻','メモ','ローカル作業ID','taskLocalId','localId'
+    ];
+    const pick = {};
+    for (const k of keys) pick[k] = (k in first) ? first[k] : '(なし)';
+    log('作業送信payload（先頭レコード要約）:\n' + JSON.stringify(pick, null, 2));
+  } catch (e) {
+    log('作業payloadログ出力失敗: ' + (e && e.message ? e.message : e));
   }
+  // ===========================================
+
+  try {
+    await fetch(WEB_APP_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload)
+    });
+
+    // no-cors ではサーバ応答が読めないので、ここは「送信呼び出し完了」までしか保証できません
+    log('作業データをWebアプリへ送信しました（no-cors / 応答は確認不可）');
+
+    // ★デバッグ中は同期済みにしない（作業ログに届くまで再送できるようにする）
+    // const serverIds = localIds.map(() => null);
+    // await markSynced(STORE_TASKS, localIds, serverIds);
+
+    log('デバッグ中のため、作業は同期済みにしません（再送可能）');
+  } catch (err) {
+    log('作業同期エラー: ' + err);
+  }
+} else {
+  log('未同期の作業はありません');
+}
+
 
   // 3) 日別気温・地温の同期
   const unsyncedDailyWeather = await getUnsynced(STORE_DAILY_WEATHER);
@@ -1589,4 +1622,5 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
