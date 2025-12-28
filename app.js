@@ -157,6 +157,10 @@ function applyMastersToPullDown(data) {
   const workerSelect = document.getElementById('workerSelect');
   const taskSelect = document.getElementById('taskTypeSelect');
 
+  // いったん「現在の選択値」を退避（再描画後に復元するため）
+  const prevWorkerValue = workerSelect ? String(workerSelect.value || '') : '';
+  const prevTaskValue = taskSelect ? String(taskSelect.value || '') : '';
+
   clearSelectKeepFirst(workerSelect);
   clearSelectKeepFirst(taskSelect);
 
@@ -164,7 +168,6 @@ function applyMastersToPullDown(data) {
     const id = workerIdOf(w);
     const label = workerLabelOf(w);
     if (!id) return;
-
     const opt = document.createElement('option');
     opt.value = id;
     opt.textContent = label || id;
@@ -175,12 +178,15 @@ function applyMastersToPullDown(data) {
     const id = taskIdOf(t);
     const label = taskLabelOf(t);
     if (!id) return;
-
     const opt = document.createElement('option');
     opt.value = id;
     opt.textContent = label || id;
     taskSelect.appendChild(opt);
   });
+
+  // マスタ作り直し後に、可能なら元の選択を復元
+  if (prevWorkerValue) setSelectValueIfExists(workerSelect, prevWorkerValue);
+  if (prevTaskValue) setSelectValueIfExists(taskSelect, prevTaskValue);
 
   log(`マスタ反映完了 workers=${workers.length} tasks=${tasks.length}`);
 }
@@ -215,6 +221,39 @@ function formatTime(date) {
   const mm = ('0' + date.getMinutes()).slice(-2);
   const ss = ('0' + date.getSeconds()).slice(-2);
   return `${hh}:${mm}:${ss}`;
+}
+
+function setSelectValueIfExists(selectEl, value) {
+  if (!selectEl) return false;
+  const v = String(value || '').trim();
+  if (!v) return false;
+  const exists = Array.from(selectEl.options).some(o => String(o.value) === v);
+  if (!exists) return false;
+  selectEl.value = v;
+  return true;
+}
+
+function setSelectByTextIfExists(selectEl, text) {
+  if (!selectEl) return false;
+  const t = String(text || '').trim();
+  if (!t) return false;
+  const opt = Array.from(selectEl.options).find(o => String(o.textContent || '').trim() === t);
+  if (!opt) return false;
+  selectEl.value = opt.value;
+  return true;
+}
+
+async function getAllRecords(storeName) {
+  const db = await openFarmCoreDB();
+  const tx = db.transaction(storeName, 'readonly');
+  const store = tx.objectStore(storeName);
+  const records = await new Promise((resolve, reject) => {
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+  db.close();
+  return records;
 }
 
 // ============================
@@ -1564,6 +1603,69 @@ async function onSaveDailyWeather() {
   memoIn.value = '';
 }
 
+async function restoreRunningStateFromIndexedDB() {
+  // 1) 「退勤していない勤怠」を探す（最新）
+  const shifts = await getAllRecords(STORE_SHIFTS);
+  const openShifts = shifts.filter(r => {
+    const d = r && r.data ? r.data : {};
+    return String(d['退勤時刻'] || '').trim() === '';
+  });
+  openShifts.sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
+
+  if (openShifts.length > 0) {
+    const s = openShifts[0];
+    const sd = s.data || {};
+    currentShiftLocalId = s.localId || null;
+    currentWorkerId = String(sd['作業者ID'] || '').trim() || null;
+    currentWorkerName = String(sd['作業者名'] || '').trim() || null;
+  } else {
+    currentShiftLocalId = null;
+    currentWorkerId = null;
+    currentWorkerName = null;
+  }
+
+  // 2) 「終了時刻が空の作業」を探す（最新）
+  const tasks = await getAllRecords(STORE_TASKS);
+  const openTasks = tasks.filter(r => {
+    const d = r && r.data ? r.data : {};
+    return String(d['終了時刻'] || '').trim() === '';
+  });
+  openTasks.sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
+
+  if (openTasks.length > 0) {
+    const t = openTasks[0];
+    const td = t.data || {};
+    currentTaskLocalId = t.localId || null;
+
+    // 勤怠IDが作業側に入っているので、それも優先して復元
+    const shiftIdFromTask = String(td['勤怠ID'] || '').trim();
+    if (shiftIdFromTask) currentShiftLocalId = shiftIdFromTask;
+
+    // 畝IDは入力欄にも戻す（URLがあっても上書きしない）
+    const bedId = String(td['畝ID'] || '').trim();
+    const bedInput = document.getElementById('bedIdInput');
+    if (bedInput && bedId && !String(bedInput.value || '').trim()) {
+      bedInput.value = bedId;
+    }
+
+    // 作業種別をプルダウンに復元（マスタが入ってからでないと option が無いので注意）
+    const taskSelect = document.getElementById('taskTypeSelect');
+    const typeId = String(td['作業種別ID'] || '').trim();
+    const typeName = String(td['作業種別名'] || td['作業種別'] || '').trim();
+
+    let ok = false;
+    if (typeId) ok = setSelectValueIfExists(taskSelect, typeId);
+    if (!ok && typeName) ok = setSelectByTextIfExists(taskSelect, typeName);
+
+    // 復元できないときはログに残す（原因調査用）
+    if (!ok && (typeId || typeName)) {
+      log(`作業種別の復元に失敗: 作業種別ID=${typeId} 作業種別名=${typeName}`);
+    }
+  } else {
+    currentTaskLocalId = null;
+  }
+}
+
 // ============================
 // 8. 初期化
 // ============================
@@ -1612,15 +1714,25 @@ window.addEventListener('load', () => {
   window.addEventListener('online', updateOnlineStatus);
   window.addEventListener('offline', updateOnlineStatus);
 
-  applyLocationFromUrl();
+    applyLocationFromUrl();
   updateStatuses();
 
-  initMasters().catch(err => {
+  initMasters().then(async () => {
+    // マスタ（プルダウン）が入った後で、IndexedDBから「作業中状態」を復元する
+    try {
+      await restoreRunningStateFromIndexedDB();
+      updateStatuses();
+      log('再読み込み復元完了（勤怠・作業・作業種別）');
+    } catch (e) {
+      log('再読み込み復元エラー: ' + (e && e.message ? e.message : e));
+    }
+  }).catch(err => {
     log('masters 読込失敗: ' + err);
     alert('masters の読み込みに失敗しました。F12 Console を確認してください。');
   });
 
   log('アプリ初期化完了');
 });
+
 
 
