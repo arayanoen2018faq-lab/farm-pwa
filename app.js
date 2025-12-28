@@ -673,15 +673,24 @@ if (unsyncedTasks.length > 0) {
     token: API_TOKEN,
     type: 'sagyo',
     records: unsyncedTasks.map(r => {
-      const data = Object.assign({}, r.data);
+  const data = Object.assign({}, r.data);
 
-      data.localId = r.localId;
+  // 送信時のID
+  data.localId = r.localId;
 
-      data['ローカル作業ID'] = r.localId;
-      data.taskLocalId = r.localId;
+  // 互換用（あなたのログで見ているキー）
+  if (!String(data['ローカル作業ID'] || '').trim()) data['ローカル作業ID'] = r.localId;
+  if (!String(data.taskLocalId || '').trim()) data.taskLocalId = r.localId;
 
-      return data;
-    })
+  // ★ここが本丸：作業種別（表示用）が空なら、作業種別名から補完
+  if (!String(data['作業種別'] || '').trim()) {
+    const name = String(data['作業種別名'] || '').trim();
+    data['作業種別'] = name;
+  }
+
+  return data;
+})
+
   };
 
   const localIds = unsyncedTasks.map(r => r.localId);
@@ -690,7 +699,7 @@ if (unsyncedTasks.length > 0) {
   try {
     const first = payload.records[0] || {};
     const keys = [
-      '作業者ID','作業者名','勤怠ID','畝ID','作業種別',
+      '作業者ID','作業者名','勤怠ID','畝ID','作業種別','作業種別名','作業種別ID',
       '開始時刻','終了時刻','メモ','ローカル作業ID','taskLocalId','localId'
     ];
     const pick = {};
@@ -1733,6 +1742,7 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
 
