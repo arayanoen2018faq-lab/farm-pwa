@@ -564,22 +564,6 @@ async function countUnsynced_(storeName) {
   return { total: records.length, unsynced: unsynced.length, sample: unsynced[0] || null };
 }
 
-
-async function getAllRecords(storeName) {
-  const db = await openFarmCoreDB();
-  const tx = db.transaction(storeName, 'readonly');
-  const store = tx.objectStore(storeName);
-
-  const records = await new Promise((resolve, reject) => {
-    const req = store.getAll();
-    req.onsuccess = () => resolve(req.result || []);
-    req.onerror = () => reject(req.error);
-  });
-
-  db.close();
-  return records;
-}
-
 function pickLatest(records) {
   if (!records || records.length === 0) return null;
   const sorted = records.slice().sort((a, b) => {
@@ -1787,6 +1771,7 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
 
