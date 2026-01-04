@@ -191,143 +191,36 @@ function loadMastersViaJsonp() {
   });
 }
 
-function applyMastersToPullDown(data) {
-  if (!data) throw new Error('masters empty');
-  if (data.error) throw new Error('masters error: ' + data.error);
-
-  const workers = Array.isArray(data.workers) ? data.workers : [];
-  const tasks   = Array.isArray(data.tasks) ? data.tasks : [];
-
-  const weathers =
-    Array.isArray(data.weathers) ? data.weathers :
-    Array.isArray(data.weather)  ? data.weather  :
-    [];
-
-  const units =
-    Array.isArray(data.units) ? data.units :
-    Array.isArray(data.unit)  ? data.unit  :
-    [];
-
-  const materials =
-    Array.isArray(data.materials) ? data.materials :
-    Array.isArray(data.material)  ? data.material  :
-    [];
-
-  const tools =
-    Array.isArray(data.tools) ? data.tools :
-    Array.isArray(data.tool)  ? data.tool  :
-    [];
-
-  const workerSelect   = document.getElementById('workerSelect');
-  const taskSelect     = document.getElementById('taskTypeSelect');
-  const weatherSelect  = document.getElementById('weatherTypeSelect');
-
-  // 追加予定（HTMLに無ければ null のまま。落ちません）
-  const unitSelect     = document.getElementById('unitSelect');
-  const materialSelect = document.getElementById('materialSelect');
-  const toolSelect     = document.getElementById('toolSelect');
-
-  const prevWorkerValue   = workerSelect   ? String(workerSelect.value || '')   : '';
-  const prevTaskValue     = taskSelect     ? String(taskSelect.value || '')     : '';
-  const prevWeatherValue  = weatherSelect  ? String(weatherSelect.value || '')  : '';
-  const prevUnitValue     = unitSelect     ? String(unitSelect.value || '')     : '';
-  const prevMaterialValue = materialSelect ? String(materialSelect.value || '') : '';
-  const prevToolValue     = toolSelect     ? String(toolSelect.value || '')     : '';
-
-  if (workerSelect)   clearSelectKeepFirst(workerSelect);
-  if (taskSelect)     clearSelectKeepFirst(taskSelect);
-  if (weatherSelect)  clearSelectKeepFirst(weatherSelect);
-  if (unitSelect)     clearSelectKeepFirst(unitSelect);
-  if (materialSelect) clearSelectKeepFirst(materialSelect);
-  if (toolSelect)     clearSelectKeepFirst(toolSelect);
-
-  // 作業者
-  if (workerSelect) {
-    workers.forEach((w) => {
-      const id = workerIdOf(w);
-      if (!id) return;
-      const label = workerLabelOf(w);
-      const opt = document.createElement('option');
-      opt.value = id;
-      opt.textContent = label || id;
-      workerSelect.appendChild(opt);
-    });
-  }
-
-  // 作業種別
-  if (taskSelect) {
-    tasks.forEach((t) => {
-      const id = taskIdOf(t);
-      if (!id) return;
-      const label = taskLabelOf(t);
-      const opt = document.createElement('option');
-      opt.value = id;
-      opt.textContent = label || id;
-      taskSelect.appendChild(opt);
-    });
-  }
-
-  // 天候
-  if (weatherSelect) {
-    weathers.forEach((w) => {
-      const id = weatherIdOf(w);
-      if (!id) return;
-      const label = weatherLabelOf(w);
-      const opt = document.createElement('option');
-      opt.value = id;
-      opt.textContent = label || id;
-      weatherSelect.appendChild(opt);
-    });
-  }
-
-  // 単位
-  if (unitSelect) {
-    units.forEach((u) => {
-      const id = unitIdOf(u);
-      if (!id) return;
-      const label = unitLabelOf(u);
-      const opt = document.createElement('option');
-      opt.value = id;
-      opt.textContent = label || id;
-      unitSelect.appendChild(opt);
-    });
-  }
-
-  // 資材
-  if (materialSelect) {
-    materials.forEach((m) => {
-      const id = materialIdOf(m);
-      if (!id) return;
-      const label = materialLabelOf(m);
-      const opt = document.createElement('option');
-      opt.value = id;
-      opt.textContent = label || id;
-      materialSelect.appendChild(opt);
-    });
-  }
-
-  // 農具
-  if (toolSelect) {
-    tools.forEach((t) => {
-      const id = toolIdOf(t);
-      if (!id) return;
-      const label = toolLabelOf(t);
-      const opt = document.createElement('option');
-      opt.value = id;
-      opt.textContent = label || id;
-      toolSelect.appendChild(opt);
-    });
-  }
-
-  if (prevWorkerValue && workerSelect)   setSelectValueIfExists(workerSelect, prevWorkerValue);
-  if (prevTaskValue && taskSelect)       setSelectValueIfExists(taskSelect, prevTaskValue);
-  if (prevWeatherValue && weatherSelect) setSelectValueIfExists(weatherSelect, prevWeatherValue);
-  if (prevUnitValue && unitSelect)       setSelectValueIfExists(unitSelect, prevUnitValue);
-  if (prevMaterialValue && materialSelect) setSelectValueIfExists(materialSelect, prevMaterialValue);
-  if (prevToolValue && toolSelect)       setSelectValueIfExists(toolSelect, prevToolValue);
-
-  log(`マスタ反映完了 workers=${workers.length} tasks=${tasks.length} weathers=${weathers.length} units=${units.length} materials=${materials.length} tools=${tools.length}`);
+function unitIdOf(u) {
+  if (!u) return '';
+  const v = (u.id ?? u.unitId ?? u.unit_id ?? u.code ?? u.value ?? '');
+  return (v === null || v === undefined) ? '' : String(v);
 }
+function unitLabelOf(u) {
+  if (!u) return '';
+  return String(u.label ?? u.displayName ?? u.name ?? u.unitName ?? unitIdOf(u) ?? '');
+}
+
+function materialIdOf(m) {
+  if (!m) return '';
+  const v = (m.id ?? m.materialId ?? m.material_id ?? m.code ?? m.value ?? '');
+  return (v === null || v === undefined) ? '' : String(v);
+}
+function materialLabelOf(m) {
+  if (!m) return '';
+  return String(m.label ?? m.displayName ?? m.name ?? m.materialName ?? materialIdOf(m) ?? '');
+}
+
+function toolIdOf(t) {
+  if (!t) return '';
+  const v = (t.id ?? t.toolId ?? t.tool_id ?? t.code ?? t.value ?? '');
+  return (v === null || v === undefined) ? '' : String(v);
+}
+function toolLabelOf(t) {
+  if (!t) return '';
+  return String(t.label ?? t.displayName ?? t.name ?? t.toolName ?? toolIdOf(t) ?? '');
+}
+
 
 async function initMasters() {
   log('masters 読込開始…');
@@ -1878,6 +1771,7 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
 
