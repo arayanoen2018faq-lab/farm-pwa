@@ -228,6 +228,141 @@ async function initMasters() {
   console.log('[masters] raw:', data);
   applyMastersToPullDown(data);
 
+function applyMastersToPullDown(data) {
+  if (!data) throw new Error('masters empty');
+  if (data.error) throw new Error('masters error: ' + data.error);
+
+  const workers = Array.isArray(data.workers) ? data.workers : [];
+  const tasks   = Array.isArray(data.tasks)   ? data.tasks   : [];
+
+  const weathers =
+    Array.isArray(data.weathers) ? data.weathers :
+    Array.isArray(data.weather)  ? data.weather  :
+    Array.isArray(data.weatherTypes) ? data.weatherTypes :
+    [];
+
+  const units =
+    Array.isArray(data.units) ? data.units :
+    Array.isArray(data.unit)  ? data.unit  :
+    Array.isArray(data.unitTypes) ? data.unitTypes :
+    [];
+
+  const materials =
+    Array.isArray(data.materials) ? data.materials :
+    Array.isArray(data.material)  ? data.material  :
+    Array.isArray(data.materialTypes) ? data.materialTypes :
+    [];
+
+  const tools =
+    Array.isArray(data.tools) ? data.tools :
+    Array.isArray(data.tool)  ? data.tool  :
+    Array.isArray(data.toolTypes) ? data.toolTypes :
+    [];
+
+  const workerSelect   = document.getElementById('workerSelect');
+  const taskSelect     = document.getElementById('taskTypeSelect');
+  const weatherSelect  = document.getElementById('weatherTypeSelect');
+  const materialSelect = document.getElementById('materialTypeSelect');
+  const unitSelect     = document.getElementById('unitTypeSelect');
+  const toolSelect     = document.getElementById('toolTypeSelect');
+
+  const prevWorkerValue   = workerSelect   ? String(workerSelect.value || '')   : '';
+  const prevTaskValue     = taskSelect     ? String(taskSelect.value || '')     : '';
+  const prevWeatherValue  = weatherSelect  ? String(weatherSelect.value || '')  : '';
+  const prevMaterialValue = materialSelect ? String(materialSelect.value || '') : '';
+  const prevUnitValue     = unitSelect     ? String(unitSelect.value || '')     : '';
+  const prevToolValue     = toolSelect     ? String(toolSelect.value || '')     : '';
+
+  clearSelectKeepFirst(workerSelect);
+  clearSelectKeepFirst(taskSelect);
+  clearSelectKeepFirst(weatherSelect);
+  clearSelectKeepFirst(materialSelect);
+  clearSelectKeepFirst(unitSelect);
+  clearSelectKeepFirst(toolSelect);
+
+  // 作業者
+  workers.forEach((w) => {
+    if (!workerSelect) return;
+    const id = workerIdOf(w);
+    const label = workerLabelOf(w);
+    if (!id) return;
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label || id;
+    workerSelect.appendChild(opt);
+  });
+
+  // 作業種別
+  tasks.forEach((t) => {
+    if (!taskSelect) return;
+    const id = taskIdOf(t);
+    const label = taskLabelOf(t);
+    if (!id) return;
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label || id;
+    taskSelect.appendChild(opt);
+  });
+
+  // 天候
+  weathers.forEach((w) => {
+    if (!weatherSelect) return;
+    const id = weatherIdOf(w);
+    const label = weatherLabelOf(w);
+    if (!id) return;
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label || id;
+    weatherSelect.appendChild(opt);
+  });
+
+  // 資材
+  materials.forEach((m) => {
+    if (!materialSelect) return;
+    const id = materialIdOf(m);
+    const label = materialLabelOf(m);
+    if (!id) return;
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label || id;
+    materialSelect.appendChild(opt);
+  });
+
+  // 単位
+  units.forEach((u) => {
+    if (!unitSelect) return;
+    const id = unitIdOf(u);
+    const label = unitLabelOf(u);
+    if (!id) return;
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label || id;
+    unitSelect.appendChild(opt);
+  });
+
+  // 農具
+  tools.forEach((t) => {
+    if (!toolSelect) return;
+    const id = toolIdOf(t);
+    const label = toolLabelOf(t);
+    if (!id) return;
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label || id;
+    toolSelect.appendChild(opt);
+  });
+
+  if (prevWorkerValue)   setSelectValueIfExists(workerSelect,   prevWorkerValue);
+  if (prevTaskValue)     setSelectValueIfExists(taskSelect,     prevTaskValue);
+  if (prevWeatherValue)  setSelectValueIfExists(weatherSelect,  prevWeatherValue);
+  if (prevMaterialValue) setSelectValueIfExists(materialSelect, prevMaterialValue);
+  if (prevUnitValue)     setSelectValueIfExists(unitSelect,     prevUnitValue);
+  if (prevToolValue)     setSelectValueIfExists(toolSelect,     prevToolValue);
+
+  log(`マスタ反映完了 workers=${workers.length} tasks=${tasks.length} weathers=${weathers.length} materials=${materials.length} units=${units.length} tools=${tools.length}`);
+}
+
+  
   // ★マスタ反映が終わった後に「自動復帰」を実行
   try {
     await restoreCurrentStateFromIndexedDB();
@@ -1771,6 +1906,7 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
 
