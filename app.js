@@ -360,7 +360,7 @@ function applyMastersToPullDown(data) {
   if (prevToolValue)     setSelectValueIfExists(toolSelect,     prevToolValue);
 
   log(`マスタ反映完了 workers=${workers.length} tasks=${tasks.length} weathers=${weathers.length} materials=${materials.length} units=${units.length} tools=${tools.length}`);
-}
+
 
   
   // ★マスタ反映が終わった後に「自動復帰」を実行
@@ -1906,6 +1906,7 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
 
