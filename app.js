@@ -98,6 +98,16 @@ function taskLabelOf(t) {
   return String(t.name ?? t.label ?? t.taskName ?? t.title ?? taskIdOf(t) ?? '');
 }
 
+function weatherIdOf(w) {
+  if (!w) return '';
+  const v = (w.id ?? w.weatherId ?? w.weather_id ?? w.code ?? w.value ?? '');
+  return (v === null || v === undefined) ? '' : String(v);
+}
+function weatherLabelOf(w) {
+  if (!w) return '';
+  return String(w.name ?? w.label ?? w.weatherName ?? w.title ?? weatherIdOf(w) ?? '');
+}
+
 function loadMastersViaJsonp() {
   return new Promise((resolve, reject) => {
     const callbackName = '__cbMasters_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
@@ -152,17 +162,27 @@ function applyMastersToPullDown(data) {
   if (data.error) throw new Error('masters error: ' + data.error);
 
   const workers = Array.isArray(data.workers) ? data.workers : [];
-  const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+  const tasks   = Array.isArray(data.tasks) ? data.tasks : [];
 
-  const workerSelect = document.getElementById('workerSelect');
-  const taskSelect = document.getElementById('taskTypeSelect');
+  // 天候は、サーバ側のキー揺れに備えて複数候補を許容
+  const weathers =
+    Array.isArray(data.weathers) ? data.weathers :
+    Array.isArray(data.weather)  ? data.weather  :
+    Array.isArray(data.weatherTypes) ? data.weatherTypes :
+    [];
+
+  const workerSelect  = document.getElementById('workerSelect');
+  const taskSelect    = document.getElementById('taskTypeSelect');
+  const weatherSelect = document.getElementById('weatherTypeSelect');
 
   // いったん「現在の選択値」を退避（再描画後に復元するため）
-  const prevWorkerValue = workerSelect ? String(workerSelect.value || '') : '';
-  const prevTaskValue = taskSelect ? String(taskSelect.value || '') : '';
+  const prevWorkerValue  = workerSelect  ? String(workerSelect.value  || '') : '';
+  const prevTaskValue    = taskSelect    ? String(taskSelect.value    || '') : '';
+  const prevWeatherValue = weatherSelect ? String(weatherSelect.value || '') : '';
 
   clearSelectKeepFirst(workerSelect);
   clearSelectKeepFirst(taskSelect);
+  clearSelectKeepFirst(weatherSelect);
 
   workers.forEach((w) => {
     const id = workerIdOf(w);
@@ -184,11 +204,22 @@ function applyMastersToPullDown(data) {
     taskSelect.appendChild(opt);
   });
 
-  // マスタ作り直し後に、可能なら元の選択を復元
-  if (prevWorkerValue) setSelectValueIfExists(workerSelect, prevWorkerValue);
-  if (prevTaskValue) setSelectValueIfExists(taskSelect, prevTaskValue);
+  weathers.forEach((w) => {
+    const id = weatherIdOf(w);
+    const label = weatherLabelOf(w);
+    if (!id) return;
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label || id;
+    weatherSelect.appendChild(opt);
+  });
 
-  log(`マスタ反映完了 workers=${workers.length} tasks=${tasks.length}`);
+  // マスタ作り直し後に、可能なら元の選択を復元
+  if (prevWorkerValue)  setSelectValueIfExists(workerSelect,  prevWorkerValue);
+  if (prevTaskValue)    setSelectValueIfExists(taskSelect,    prevTaskValue);
+  if (prevWeatherValue) setSelectValueIfExists(weatherSelect, prevWeatherValue);
+
+  log(`マスタ反映完了 workers=${workers.length} tasks=${tasks.length} weathers=${weathers.length}`);
 }
 
 async function initMasters() {
@@ -577,7 +608,6 @@ async function restoreCurrentStateFromIndexedDB() {
     currentWorkerName = null;
     currentTaskLocalId = null;
 
-    // UI
     const workerSelect = document.getElementById('workerSelect');
     if (workerSelect) workerSelect.disabled = false;
 
@@ -595,7 +625,7 @@ async function restoreCurrentStateFromIndexedDB() {
   // マスタ反映後なら、作業者プルダウンを合わせる（存在すれば）
   const workerSelect = document.getElementById('workerSelect');
   if (workerSelect && currentWorkerId) {
-    workerSelect.value = currentWorkerId;
+    setSelectValueIfExists(workerSelect, currentWorkerId);
     workerSelect.disabled = true; // 出勤中は作業者のすり替えを防止
   }
 
@@ -610,13 +640,37 @@ async function restoreCurrentStateFromIndexedDB() {
   });
 
   const taskRec = pickLatest(activeTasks);
-
   currentTaskLocalId = taskRec ? taskRec.localId : null;
+
+  // 作業があれば、畝ID入力と作業種別プルダウンも復元
+  if (taskRec && taskRec.data) {
+    const td = taskRec.data;
+
+    // 畝ID（URLがあっても、入力欄が空なら復元）
+    const bedId = String(td['畝ID'] || '').trim();
+    const bedInput = document.getElementById('bedIdInput');
+    if (bedInput && bedId && !String(bedInput.value || '').trim()) {
+      bedInput.value = bedId;
+    }
+
+    // 作業種別
+    const taskSelect = document.getElementById('taskTypeSelect');
+    const typeId = String(td['作業種別ID'] || '').trim();
+    const typeName = String(td['作業種別名'] || td['作業種別'] || '').trim();
+
+    let ok = false;
+    if (typeId) ok = setSelectValueIfExists(taskSelect, typeId);
+    if (!ok && typeName) ok = setSelectByTextIfExists(taskSelect, typeName);
+
+    if (!ok && (typeId || typeName)) {
+      log(`作業種別の復元に失敗: 作業種別ID=${typeId} 作業種別名=${typeName}`);
+    }
+  }
 
   updateStatuses();
 
   if (currentTaskLocalId) {
-    log(`自動復帰: 出勤中 + 作業中 を復帰しました（shift=${currentShiftLocalId}, task=${currentTaskLocalId}）`);
+    log(`自動復帰: 出勤中 かつ 作業中 を復帰しました（shift=${currentShiftLocalId}, task=${currentTaskLocalId}）`);
   } else {
     log(`自動復帰: 出勤中（作業なし）を復帰しました（shift=${currentShiftLocalId}）`);
   }
@@ -1726,22 +1780,14 @@ window.addEventListener('load', () => {
     applyLocationFromUrl();
   updateStatuses();
 
-  initMasters().then(async () => {
-    // マスタ（プルダウン）が入った後で、IndexedDBから「作業中状態」を復元する
-    try {
-      await restoreRunningStateFromIndexedDB();
-      updateStatuses();
-      log('再読み込み復元完了（勤怠・作業・作業種別）');
-    } catch (e) {
-      log('再読み込み復元エラー: ' + (e && e.message ? e.message : e));
-    }
-  }).catch(err => {
+    initMasters().catch(err => {
     log('masters 読込失敗: ' + err);
     alert('masters の読み込みに失敗しました。F12 Console を確認してください。');
   });
 
   log('アプリ初期化完了');
 });
+
 
 
 
