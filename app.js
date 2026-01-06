@@ -69,6 +69,217 @@ function log(message) {
 }
 
 // ============================
+//  資材・農具 明細UI（複数行）
+// ============================
+
+const mastersCache = {
+  units: [],
+  materials: [],
+  tools: [],
+};
+
+function normalizeUnit_(u) {
+  const unitId = String(u.unitId ?? u.id ?? '');
+  const label  = String(u.unitLabel ?? u.label ?? u.name ?? '');
+  const allowDecimal = (u.allowDecimal ?? u.decimal ?? u.isDecimal ?? true);
+  return { unitId, label, allowDecimal: allowDecimal !== false };
+}
+
+function normalizeMaterial_(m) {
+  const materialId = String(m.materialId ?? m.id ?? '');
+  const label      = String(m.materialName ?? m.label ?? m.name ?? '');
+  const defaultUnitId = String(m.defaultUnitId ?? m.standardUnitId ?? m.unitId ?? '');
+  const allowDecimal  = (m.allowDecimal ?? m.decimal ?? m.isDecimal ?? null);
+  return { materialId, label, defaultUnitId, allowDecimal };
+}
+
+function normalizeTool_(t) {
+  const toolId = String(t.toolId ?? t.id ?? '');
+  const label  = String(t.toolName ?? t.label ?? t.name ?? '');
+  return { toolId, label };
+}
+
+function setMastersForDetailUi_(mastersRaw) {
+  const unitsRaw     = Array.isArray(mastersRaw.units) ? mastersRaw.units : (Array.isArray(mastersRaw.unit) ? mastersRaw.unit : []);
+  const materialsRaw = Array.isArray(mastersRaw.materials) ? mastersRaw.materials : (Array.isArray(mastersRaw.material) ? mastersRaw.material : []);
+  const toolsRaw     = Array.isArray(mastersRaw.tools) ? mastersRaw.tools : (Array.isArray(mastersRaw.tool) ? mastersRaw.tool : []);
+
+  mastersCache.units     = unitsRaw.map(normalizeUnit_).filter(x => x.unitId && x.label);
+  mastersCache.materials = materialsRaw.map(normalizeMaterial_).filter(x => x.materialId && x.label);
+  mastersCache.tools     = toolsRaw.map(normalizeTool_).filter(x => x.toolId && x.label);
+}
+
+function buildOptionsHtml_(items, valueKey, labelKey, placeholderText) {
+  const ph = placeholderText ? `<option value="">${escapeHtml_(placeholderText)}</option>` : `<option value=""></option>`;
+  const opts = items.map(it => {
+    const v = escapeHtml_(String(it[valueKey] ?? ''));
+    const l = escapeHtml_(String(it[labelKey] ?? ''));
+    return `<option value="${v}">${l}</option>`;
+  }).join('');
+  return ph + opts;
+}
+
+function escapeHtml_(s) {
+  return String(s)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function createMaterialRow_() {
+  const row = document.createElement('div');
+  row.className = 'detail-row material-row';
+  row.style.cssText = 'display:grid; grid-template-columns: 1fr 110px 110px 44px; gap:8px; align-items:center;';
+
+  const materialOptions = buildOptionsHtml_(mastersCache.materials, 'materialId', 'label', '選択');
+  const unitOptions     = buildOptionsHtml_(mastersCache.units, 'unitId', 'label', '単位');
+
+  row.innerHTML = `
+    <select class="form-select form-select-sm material-select">${materialOptions}</select>
+    <input class="form-control form-control-sm material-qty"
+           type="number" inputmode="decimal" placeholder="数量" />
+    <select class="form-select form-select-sm material-unit">${unitOptions}</select>
+    <button type="button" class="btn btn-sm btn-outline-danger remove-row" aria-label="削除">×</button>
+  `;
+
+  // 資材選択時：標準単位IDを自動セット
+  const selMaterial = row.querySelector('.material-select');
+  const selUnit     = row.querySelector('.material-unit');
+  const inputQty    = row.querySelector('.material-qty');
+
+  selMaterial.addEventListener('change', () => {
+    const materialId = selMaterial.value;
+    const m = mastersCache.materials.find(x => x.materialId === materialId);
+    if (!m) return;
+
+    if (m.defaultUnitId) {
+      selUnit.value = m.defaultUnitId;
+    }
+
+    // allowDecimal がマスタにある場合のみ、入力補助を寄せる（厳密チェックは保存時でも行う）
+    if (m.allowDecimal === false) {
+      inputQty.step = '1';
+      inputQty.inputMode = 'numeric';
+    } else {
+      inputQty.step = 'any';
+      inputQty.inputMode = 'decimal';
+    }
+  });
+
+  return row;
+}
+
+function createToolRow_() {
+  const row = document.createElement('div');
+  row.className = 'detail-row tool-row';
+  row.style.cssText = 'display:grid; grid-template-columns: 1fr 110px 44px; gap:8px; align-items:center;';
+
+  const toolOptions = buildOptionsHtml_(mastersCache.tools, 'toolId', 'label', '選択');
+
+  row.innerHTML = `
+    <select class="form-select form-select-sm tool-select">${toolOptions}</select>
+    <input class="form-control form-control-sm tool-qty"
+           type="number" inputmode="decimal" placeholder="数量" />
+    <button type="button" class="btn btn-sm btn-outline-danger remove-row" aria-label="削除">×</button>
+  `;
+  return row;
+}
+
+function bindDetailUiEvents_() {
+  const materialsList = document.getElementById('materialsList');
+  const toolsList     = document.getElementById('toolsList');
+  const addMaterialBtn = document.getElementById('addMaterialRowBtn');
+  const addToolBtn     = document.getElementById('addToolRowBtn');
+
+  if (!materialsList || !toolsList || !addMaterialBtn || !addToolBtn) return;
+
+  addMaterialBtn.addEventListener('click', () => {
+    materialsList.appendChild(createMaterialRow_());
+  });
+
+  addToolBtn.addEventListener('click', () => {
+    toolsList.appendChild(createToolRow_());
+  });
+
+  // 行削除（イベント委譲）
+  materialsList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.remove-row');
+    if (!btn) return;
+    const row = e.target.closest('.material-row');
+    if (row) row.remove();
+  });
+
+  toolsList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.remove-row');
+    if (!btn) return;
+    const row = e.target.closest('.tool-row');
+    if (row) row.remove();
+  });
+}
+
+function readMaterialsFromUi_() {
+  const list = document.getElementById('materialsList');
+  if (!list) return [];
+
+  const rows = Array.from(list.querySelectorAll('.material-row'));
+  const items = [];
+  let lineNo = 1;
+
+  for (const row of rows) {
+    const materialId = row.querySelector('.material-select')?.value ?? '';
+    const qtyStr     = row.querySelector('.material-qty')?.value ?? '';
+    const unitId     = row.querySelector('.material-unit')?.value ?? '';
+
+    if (!materialId) continue;
+    if (!qtyStr) continue;
+
+    const qty = Number(qtyStr);
+    if (!Number.isFinite(qty)) continue;
+
+    items.push({
+      lineNo,
+      materialId: String(materialId),
+      qty,
+      unitId: String(unitId || ''),
+    });
+    lineNo += 1;
+  }
+
+  return items;
+}
+
+function readToolsFromUi_() {
+  const list = document.getElementById('toolsList');
+  if (!list) return [];
+
+  const rows = Array.from(list.querySelectorAll('.tool-row'));
+  const items = [];
+  let lineNo = 1;
+
+  for (const row of rows) {
+    const toolId  = row.querySelector('.tool-select')?.value ?? '';
+    const qtyStr  = row.querySelector('.tool-qty')?.value ?? '';
+
+    if (!toolId) continue;
+    if (!qtyStr) continue;
+
+    const qty = Number(qtyStr);
+    if (!Number.isFinite(qty)) continue;
+
+    items.push({
+      lineNo,
+      toolId: String(toolId),
+      qty,
+    });
+    lineNo += 1;
+  }
+
+  return items;
+}
+
+// ============================
 // マスタ読込（JSONP）
 // ============================
 function clearSelectKeepFirst(selectEl) {
@@ -142,9 +353,9 @@ function toolLabelOf(t) {
 }
 
 
-function loadMastersViaJsonp() {
+function loadViaJsonp() {
   return new Promise((resolve, reject) => {
-    const callbackName = '__cbMasters_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+    const callbackName = '__cb_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
     const timeoutMs = 15000;
     let done = false;
     let script = null;
@@ -167,7 +378,7 @@ function loadMastersViaJsonp() {
 
     const src =
       WEB_APP_URL
-      + '?type=masters'
+      + '?type='
       + '&token=' + encodeURIComponent(API_TOKEN)
       + '&callback=' + encodeURIComponent(callbackName)
       + '&_=' + Date.now();
@@ -224,9 +435,16 @@ function toolLabelOf(t) {
 
 async function initMasters() {
   log('masters 読込開始…');
-  const data = await loadMastersViaJsonp();
+  const data = await loadViaJsonp();
   console.log('[masters] raw:', data);
   applyMastersToPullDown(data);
+  setMastersForDetailUi_(data);
+  bindDetailUiEvents_();
+
+  // 初回は空行を1行だけ出しておく（現場入力が速くなります）
+  document.getElementById('materialsList')?.appendChild(createMaterialRow_());
+  document.getElementById('toolsList')?.appendChild(createToolRow_());
+  
 
 function applyMastersToPullDown(data) {
   if (!data) throw new Error('masters empty');
@@ -241,44 +459,17 @@ function applyMastersToPullDown(data) {
     Array.isArray(data.weatherTypes) ? data.weatherTypes :
     [];
 
-  const units =
-    Array.isArray(data.units) ? data.units :
-    Array.isArray(data.unit)  ? data.unit  :
-    Array.isArray(data.unitTypes) ? data.unitTypes :
-    [];
+  const workerSelect  = document.getElementById('workerSelect');
+  const taskSelect    = document.getElementById('taskTypeSelect');
+  const weatherSelect = document.getElementById('weatherTypeSelect');
 
-  const materials =
-    Array.isArray(data.materials) ? data.materials :
-    Array.isArray(data.material)  ? data.material  :
-    Array.isArray(data.materialTypes) ? data.materialTypes :
-    [];
-
-  const tools =
-    Array.isArray(data.tools) ? data.tools :
-    Array.isArray(data.tool)  ? data.tool  :
-    Array.isArray(data.toolTypes) ? data.toolTypes :
-    [];
-
-  const workerSelect   = document.getElementById('workerSelect');
-  const taskSelect     = document.getElementById('taskTypeSelect');
-  const weatherSelect  = document.getElementById('weatherTypeSelect');
-  const materialSelect = document.getElementById('materialTypeSelect');
-  const unitSelect     = document.getElementById('unitTypeSelect');
-  const toolSelect     = document.getElementById('toolTypeSelect');
-
-  const prevWorkerValue   = workerSelect   ? String(workerSelect.value || '')   : '';
-  const prevTaskValue     = taskSelect     ? String(taskSelect.value || '')     : '';
-  const prevWeatherValue  = weatherSelect  ? String(weatherSelect.value || '')  : '';
-  const prevMaterialValue = materialSelect ? String(materialSelect.value || '') : '';
-  const prevUnitValue     = unitSelect     ? String(unitSelect.value || '')     : '';
-  const prevToolValue     = toolSelect     ? String(toolSelect.value || '')     : '';
+  const prevWorkerValue  = workerSelect  ? String(workerSelect.value || '')  : '';
+  const prevTaskValue    = taskSelect    ? String(taskSelect.value || '')    : '';
+  const prevWeatherValue = weatherSelect ? String(weatherSelect.value || '') : '';
 
   clearSelectKeepFirst(workerSelect);
   clearSelectKeepFirst(taskSelect);
   clearSelectKeepFirst(weatherSelect);
-  clearSelectKeepFirst(materialSelect);
-  clearSelectKeepFirst(unitSelect);
-  clearSelectKeepFirst(toolSelect);
 
   // 作業者
   workers.forEach((w) => {
@@ -316,53 +507,13 @@ function applyMastersToPullDown(data) {
     weatherSelect.appendChild(opt);
   });
 
-  // 資材
-  materials.forEach((m) => {
-    if (!materialSelect) return;
-    const id = materialIdOf(m);
-    const label = materialLabelOf(m);
-    if (!id) return;
-    const opt = document.createElement('option');
-    opt.value = id;
-    opt.textContent = label || id;
-    materialSelect.appendChild(opt);
-  });
+  if (prevWorkerValue)  setSelectValueIfExists(workerSelect,  prevWorkerValue);
+  if (prevTaskValue)    setSelectValueIfExists(taskSelect,    prevTaskValue);
+  if (prevWeatherValue) setSelectValueIfExists(weatherSelect, prevWeatherValue);
 
-  // 単位
-  units.forEach((u) => {
-    if (!unitSelect) return;
-    const id = unitIdOf(u);
-    const label = unitLabelOf(u);
-    if (!id) return;
-    const opt = document.createElement('option');
-    opt.value = id;
-    opt.textContent = label || id;
-    unitSelect.appendChild(opt);
-  });
+  log(`マスタ反映完了 workers=${workers.length} tasks=${tasks.length} weathers=${weathers.length}`);
+}
 
-  // 農具
-  tools.forEach((t) => {
-    if (!toolSelect) return;
-    const id = toolIdOf(t);
-    const label = toolLabelOf(t);
-    if (!id) return;
-    const opt = document.createElement('option');
-    opt.value = id;
-    opt.textContent = label || id;
-    toolSelect.appendChild(opt);
-  });
-
-  if (prevWorkerValue)   setSelectValueIfExists(workerSelect,   prevWorkerValue);
-  if (prevTaskValue)     setSelectValueIfExists(taskSelect,     prevTaskValue);
-  if (prevWeatherValue)  setSelectValueIfExists(weatherSelect,  prevWeatherValue);
-  if (prevMaterialValue) setSelectValueIfExists(materialSelect, prevMaterialValue);
-  if (prevUnitValue)     setSelectValueIfExists(unitSelect,     prevUnitValue);
-  if (prevToolValue)     setSelectValueIfExists(toolSelect,     prevToolValue);
-
-  log(`マスタ反映完了 workers=${workers.length} tasks=${tasks.length} weathers=${weathers.length} materials=${materials.length} units=${units.length} tools=${tools.length}`);
- }
-
-  
   // ★マスタ反映が終わった後に「自動復帰」を実行
   try {
     await restoreCurrentStateFromIndexedDB();
@@ -893,6 +1044,89 @@ if (unsyncedTasks.length > 0) {
 
     // no-cors ではサーバ応答が読めないので、ここは「送信呼び出し完了」までしか保証できません
     log('作業データをWebアプリへ送信しました（no-cors / 応答は確認不可）');
+
+      // === 明細ログ（作業資材ログ／作業農具ログ）を別で送信 ===
+  // ※GAS側で type に応じて「作業資材ログ」「作業農具ログ」へ書き込む想定
+
+  // 1) 資材ログ用レコードに分解
+  const materialRows = [];
+  for (const r of unsyncedTasks) {
+    const d = (r && r.data) ? r.data : {};
+    const taskLocalId = r.localId;
+
+    const items = Array.isArray(d['資材明細']) ? d['資材明細'] : [];
+    for (const it of items) {
+      materialRows.push({
+        ローカル作業ID: taskLocalId,
+        行番号: it.lineNo ?? null,
+        資材ID: it.materialId ?? '',
+        数量: it.qty ?? null,
+        単位ID: it.unitId ?? ''
+      });
+    }
+  }
+
+  if (materialRows.length > 0) {
+    const payloadMaterials = {
+      token: API_TOKEN,
+      type: 'sagyoMaterials',
+      records: materialRows
+    };
+
+    try {
+      await fetch(WEB_APP_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(payloadMaterials)
+      });
+      log(`作業資材ログをWebアプリへ送信しました（no-cors） rows=${materialRows.length}`);
+    } catch (e) {
+      log('作業資材ログ送信エラー: ' + e);
+    }
+  } else {
+    log('作業資材ログ: 送信対象なし');
+  }
+
+  // 2) 農具ログ用レコードに分解
+  const toolRows = [];
+  for (const r of unsyncedTasks) {
+    const d = (r && r.data) ? r.data : {};
+    const taskLocalId = r.localId;
+
+    const items = Array.isArray(d['農具明細']) ? d['農具明細'] : [];
+    for (const it of items) {
+      toolRows.push({
+        ローカル作業ID: taskLocalId,
+        行番号: it.lineNo ?? null,
+        農具ID: it.toolId ?? '',
+        数量: it.qty ?? null
+      });
+    }
+  }
+
+  if (toolRows.length > 0) {
+    const payloadTools = {
+      token: API_TOKEN,
+      type: 'sagyoTools',
+      records: toolRows
+    };
+
+    try {
+      await fetch(WEB_APP_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(payloadTools)
+      });
+      log(`作業農具ログをWebアプリへ送信しました（no-cors） rows=${toolRows.length}`);
+    } catch (e) {
+      log('作業農具ログ送信エラー: ' + e);
+    }
+  } else {
+    log('作業農具ログ: 送信対象なし');
+  }
+
 
     // ★デバッグ中は同期済みにしない（作業ログに届くまで再送できるようにする）
     // const serverIds = localIds.map(() => null);
@@ -1524,8 +1758,15 @@ async function onBreakStart() {
   if (currentTaskLocalId) {
     await updateTaskLocal(currentTaskLocalId, (record) => {
       const data = record.data;
+
+      // 休憩開始＝一旦作業を止めるので終了時刻を入れる
       data['終了時刻'] = formatTime(now);
 
+      // 休憩時点の明細を確定
+      data['資材明細'] = readMaterialsFromUi_();
+      data['農具明細'] = readToolsFromUi_();
+
+      // 再開用テンプレに必要項目を退避
       pausedTaskTemplate = {
         畝ID: data['畝ID'],
         圃場ID: data['圃場ID'],
@@ -1537,9 +1778,15 @@ async function onBreakStart() {
         ロットID: data['ロットID'],
         作業種別ID: data['作業種別ID'],
         作業種別名: data['作業種別名'],
+
+        天候ID: data['天候ID'],
         天候: data['天候'],
-        気温: data['気温'],
+
         地温: data['地温'],
+
+        資材明細: data['資材明細'],
+        農具明細: data['農具明細'],
+
         メモ: data['メモ'],
         機械作業フラグ: data['機械作業フラグ']
       };
@@ -1602,6 +1849,7 @@ async function onBreakEnd() {
       作業日: formatDateForSheet(now),
       開始時刻: formatTime(now),
       終了時刻: '',
+
       畝ID: t.畝ID || '',
       圃場ID: t.圃場ID || '',
       圃場名: t.圃場名 || '',
@@ -1612,9 +1860,16 @@ async function onBreakEnd() {
       ロットID: t.ロットID || '',
       作業種別ID: t.作業種別ID || '',
       作業種別名: t.作業種別名 || '',
+
+      天候ID: t.天候ID || '',
       天候: t.天候 || '',
-      気温: t.気温 ?? null,
+
       地温: t.地温 ?? null,
+
+      // ★休憩前の明細を引き継ぐ
+      資材明細: Array.isArray(t.資材明細) ? t.資材明細 : [],
+      農具明細: Array.isArray(t.農具明細) ? t.農具明細 : [],
+
       開始写真URL: '',
       終了写真URL: '',
       開始写真あり: false,
@@ -1670,6 +1925,14 @@ async function onTaskStart() {
 
   const now = new Date();
 
+  // 天候（プルダウン）を先に取得
+  const weatherSelect = document.getElementById('weatherTypeSelect');
+  const weatherId = weatherSelect ? String(weatherSelect.value || '').trim() : '';
+  const weatherName =
+    (weatherSelect && weatherSelect.selectedIndex >= 0)
+    ? String(weatherSelect.options[weatherSelect.selectedIndex].text || '').trim()
+    : '';
+
   const data = {
     作業ID: '',
     勤怠ID: currentShiftLocalId,
@@ -1689,7 +1952,7 @@ async function onTaskStart() {
     作業種別ID: taskTypeId,
     作業種別名: taskTypeName,
     天候: '',
-    気温: null,
+    天候ID: weatherId,
     地温: null,
     開始写真URL: '',
     終了写真URL: '',
@@ -1718,6 +1981,10 @@ async function onTaskEnd() {
 
   await updateTaskLocal(currentTaskLocalId, (record) => {
     record.data['終了時刻'] = formatTime(now);
+
+    // 終了時点の明細を確定
+    record.data['資材明細'] = readMaterialsFromUi_();
+    record.data['農具明細'] = readToolsFromUi_();
   });
 
   log(`作業終了を更新（localId=${currentTaskLocalId}）`);
@@ -1906,14 +2173,3 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
-
-
-
-
-
-
-
-
-
-
-
