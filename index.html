@@ -124,29 +124,37 @@
     </select>
   </label>
 
-  <label>
-    資材：
-    <select id="materialTypeSelect">
-      <option value="">選択してください</option>
-      <!-- ここにスクリプトから自動で option が追加されます -->
-    </select>
-  </label>
+  <!-- 資材（複数入力） -->
+<div class="mb-2">
+　<div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+    <label class="form-label" style="margin:0;">資材：</label>
+    <button type="button" id="addMaterialRowBtn" class="btn btn-sm btn-outline-secondary">資材を追加</button>
+  </div>
 
-  <label>
-    単位：
-    <select id="unitTypeSelect">
-      <option value="">選択してください</option>
-      <!-- ここにスクリプトから自動で option が追加されます -->
-    </select>
-  </label>
+  <div id="materialsList" class="mt-2" style="display:flex; flex-direction:column; gap:8px;">
+    <!-- ここに行が追加されます -->
+  </div>
 
-  <label>
-    農具：
-    <select id="toolTypeSelect">
-      <option value="">選択してください</option>
-      <!-- ここにスクリプトから自動で option が追加されます -->
-    </select>
-  </label>
+  <div class="form-text" style="margin-top:6px;">
+    資材を選ぶと標準単位が自動で入ります（必要なら変更可）。
+  </div>
+</div>
+
+<!-- 農具（複数入力） -->
+<div class="mb-2">
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+    <label class="form-label" style="margin:0;">農具：</label>
+    <button type="button" id="addToolRowBtn" class="btn btn-sm btn-outline-secondary">農具を追加</button>
+  </div>
+
+  <div id="toolsList" class="mt-2" style="display:flex; flex-direction:column; gap:8px;">
+    <!-- ここに行が追加されます -->
+  </div>
+
+  <div class="form-text" style="margin-top:6px;">
+    農具は回数や時間などを数量として記録できます。
+  </div>
+</div>
 
   <label>
     メモ：
@@ -267,6 +275,7 @@
 
 </body>
 </html>
+
 
 
 
