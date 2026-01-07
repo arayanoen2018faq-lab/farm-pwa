@@ -70,6 +70,52 @@
       color: #555;
       margin-top: 4px;
     }
+    
+    /* 資材／農具 明細行：PCで横に伸びすぎて右端に飛ぶのを防ぐ */
+.detail-row {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  max-width: 720px;          /* ここで“行の横幅”を制限 */
+}
+
+/* セレクトが伸びすぎない上限 */
+.detail-row .form-select {
+  max-width: 360px;
+}
+
+/* 資材：セレクト／数量／単位／削除 */
+.detail-row-material {
+  grid-template-columns: minmax(240px, 360px) 110px 110px 44px;
+}
+
+/* 農具：セレクト／回数（数量）／削除 */
+.detail-row-tool {
+  grid-template-columns: minmax(240px, 360px) 110px 44px;
+}
+
+/* スマホは今まで通り“詰まって見える”ようにする */
+@media (max-width: 576px) {
+  .detail-row {
+    max-width: 100%;
+  }
+  .detail-row-material {
+    grid-template-columns: 1fr 96px 96px 44px;
+  }
+  .detail-row-tool {
+    grid-template-columns: 1fr 96px 44px;
+  }
+}
+
+/* 明細の親コンテナが中央寄せ等になっている場合に左寄せへ */
+#materialsContainer,
+#toolsContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}    
   </style>
 </head>
 <body>
@@ -275,6 +321,7 @@
 
 </body>
 </html>
+
 
 
 
