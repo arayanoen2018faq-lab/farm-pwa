@@ -116,6 +116,41 @@
   gap: 8px;
   align-items: flex-start;
 }    
+
+　　/* 追加ボタンが右に飛ぶのを強制的に止める */
+#addMaterialRowBtn,
+#addToolRowBtn {
+  float: none !important;
+  position: static !important;
+  right: auto !important;
+  left: auto !important;
+  margin-left: 0 !important;
+}
+
+/* ボタンの親が右寄せでも、ボタン周りだけ左寄せに寄せる */
+#addMaterialRowBtn,
+#addToolRowBtn {
+  display: inline-block;
+}
+
+/* 明細エリア全体の横幅を揃えて、ボタンも同じ幅の左側に載せる */
+#materialsList,
+#toolsList,
+#materialsContainer,
+#toolsContainer {
+  width: 100%;
+  max-width: 720px;
+}
+
+/* 親が flex でも右寄せにならないようにする */
+#materialsContainer,
+#toolsContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+    
   </style>
 </head>
 <body>
@@ -321,6 +356,7 @@
 
 </body>
 </html>
+
 
 
 
