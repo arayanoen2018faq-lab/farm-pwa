@@ -378,7 +378,7 @@ function loadViaJsonp() {
 
     const src =
       WEB_APP_URL
-      + '?type='
+      + '?type=masters'
       + '&token=' + encodeURIComponent(API_TOKEN)
       + '&callback=' + encodeURIComponent(callbackName)
       + '&_=' + Date.now();
@@ -2173,3 +2173,4 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
