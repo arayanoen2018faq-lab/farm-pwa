@@ -130,8 +130,7 @@ function escapeHtml_(s) {
 
 function createMaterialRow_() {
   const row = document.createElement('div');
-  row.className = 'detail-row material-row';
-  row.style.cssText = 'display:grid; grid-template-columns: 1fr 110px 110px 44px; gap:8px; align-items:center;';
+  row.className = 'detail-row detail-row-material';  
 
   const materialOptions = buildOptionsHtml_(mastersCache.materials, 'materialId', 'label', '選択');
   const unitOptions     = buildOptionsHtml_(mastersCache.units, 'unitId', 'label', '単位');
@@ -173,8 +172,7 @@ function createMaterialRow_() {
 
 function createToolRow_() {
   const row = document.createElement('div');
-  row.className = 'detail-row tool-row';
-  row.style.cssText = 'display:grid; grid-template-columns: 1fr 110px 44px; gap:8px; align-items:center;';
+  row.className = 'detail-row detail-row-tool'; 
 
   const toolOptions = buildOptionsHtml_(mastersCache.tools, 'toolId', 'label', '選択');
 
@@ -2173,4 +2171,5 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
