@@ -1949,7 +1949,7 @@ async function onTaskStart() {
     ロットID: '',
     作業種別ID: taskTypeId,
     作業種別名: taskTypeName,
-    天候: '',
+    天候: weatherName,
     天候ID: weatherId,
     地温: null,
     開始写真URL: '',
@@ -2171,5 +2171,6 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
