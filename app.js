@@ -130,7 +130,7 @@ function escapeHtml_(s) {
 
 function createMaterialRow_() {
   const row = document.createElement('div');
-  row.className = 'detail-row detail-row-material';  
+  row.className = 'material-row detail-row detail-row-material';
 
   const materialOptions = buildOptionsHtml_(mastersCache.materials, 'materialId', 'label', '選択');
   const unitOptions     = buildOptionsHtml_(mastersCache.units, 'unitId', 'label', '単位');
@@ -143,7 +143,6 @@ function createMaterialRow_() {
     <button type="button" class="btn btn-sm btn-outline-danger remove-row" aria-label="削除">×</button>
   `;
 
-  // 資材選択時：標準単位IDを自動セット
   const selMaterial = row.querySelector('.material-select');
   const selUnit     = row.querySelector('.material-unit');
   const inputQty    = row.querySelector('.material-qty');
@@ -157,7 +156,6 @@ function createMaterialRow_() {
       selUnit.value = m.defaultUnitId;
     }
 
-    // allowDecimal がマスタにある場合のみ、入力補助を寄せる（厳密チェックは保存時でも行う）
     if (m.allowDecimal === false) {
       inputQty.step = '1';
       inputQty.inputMode = 'numeric';
@@ -172,7 +170,7 @@ function createMaterialRow_() {
 
 function createToolRow_() {
   const row = document.createElement('div');
-  row.className = 'detail-row detail-row-tool'; 
+  row.className = 'tool-row detail-row detail-row-tool';
 
   const toolOptions = buildOptionsHtml_(mastersCache.tools, 'toolId', 'label', '選択');
 
@@ -2171,6 +2169,7 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
 
