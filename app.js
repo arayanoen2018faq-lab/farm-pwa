@@ -177,7 +177,7 @@ function createToolRow_() {
   row.innerHTML = `
     <select class="form-select form-select-sm tool-select">${toolOptions}</select>
     <input class="form-control form-control-sm tool-qty"
-           type="number" inputmode="decimal" placeholder="数量" />
+           type="number" inputmode="decimal" placeholder="数量（空欄可）" />
     <button type="button" class="btn btn-sm btn-outline-danger remove-row" aria-label="削除">×</button>
   `;
   return row;
@@ -255,23 +255,26 @@ function readToolsFromUi_() {
   let lineNo = 1;
 
   for (const row of rows) {
-    const toolId  = row.querySelector('.tool-select')?.value ?? '';
-    const qtyStr  = row.querySelector('.tool-qty')?.value ?? '';
+    const toolId = row.querySelector('.tool-select')?.value ?? '';
+    const qtyStr = row.querySelector('.tool-qty')?.value ?? '';
 
     if (!toolId) continue;
-    if (!qtyStr) continue;
 
-    const qty = Number(qtyStr);
-    if (!Number.isFinite(qty)) continue;
+    // 数量は任意。入っていれば数値、空欄なら空のまま送る
+    let qty = '';
+    if (String(qtyStr).trim() !== '') {
+      const n = Number(qtyStr);
+      if (!Number.isFinite(n)) continue;
+      qty = n;
+    }
 
     items.push({
       lineNo,
       toolId: String(toolId),
-      qty,
+      qty
     });
     lineNo += 1;
   }
-
   return items;
 }
 
@@ -2169,6 +2172,7 @@ window.addEventListener('load', () => {
 
   log('アプリ初期化完了');
 });
+
 
 
 
